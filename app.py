@@ -399,6 +399,9 @@ def index():
         if not user:
             return redirect(url_for('login'))
         
+        # Get the user's role as UserRole enum
+        user_role = user.role
+        
         html = """
         <!DOCTYPE html>
         <html>
@@ -509,7 +512,7 @@ def index():
                         <h1>📊 Orders Management Dashboard</h1>
                         <div class="user-info">
                             <span>Welcome, <strong>{{ session.get('username', 'User') }}</strong></span>
-                            <span class="user-role">{{ get_role_display_name(session.get('role', 'viewer')) }}</span>
+                            <span class="user-role">{{ get_role_display_name(user_role) }}</span>
                         </div>
                     </div>
                     <a href="/logout" class="logout-btn">Logout</a>
@@ -560,7 +563,7 @@ def index():
                         <p>Mobile-optimized interface for on-the-go order management.</p>
                     </a>
                     
-                    {% if session.get('role') == 'admin' %}
+                    {% if user_role.value == 'admin' %}
                     <a href="/users" class="card">
                         <h3>👤 User Management</h3>
                         <p>Manage user accounts, roles, and permissions.</p>
@@ -588,7 +591,7 @@ def index():
         </body>
         </html>
         """
-        return render_template_string(html, session=session, get_role_display_name=get_role_display_name)
+        return render_template_string(html, session=session, get_role_display_name=get_role_display_name, user_role=user_role)
     except Exception as e:
         print(f"Error in dashboard route: {e}")
         import traceback
