@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from models.database import (
     Order, Customer, OrderItem, Item, Product, Delivery, DeliveryTerm,
     ProductionPlan, Employee, Component, ProductComponent, User, UserRole,
-    get_database_path, init_db
+    get_database_path, init_db, create_default_users
 )
 from utils.label_generator import LabelGenerator
 from utils.auth import authenticate_user, hash_password, verify_password, get_role_display_name
@@ -37,6 +37,15 @@ Session = sessionmaker(bind=engine)
 
 def get_session():
     return Session()
+
+# Create default users if they don't exist
+try:
+    session = get_session()
+    create_default_users(session)
+    session.close()
+    print("Default users created successfully!")
+except Exception as e:
+    print(f"Warning: Could not create default users: {e}")
 
 # Global storage for label cart (from mobile API)
 label_cart = []
