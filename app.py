@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:25:00
+Last updated: 2025-07-24 09:28:00
 """
 
 import os
@@ -307,7 +307,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     text-decoration: none;
                     color: white;
                     font-weight: 600;
-                    font-size: 16px;
+                    font-size: 20px;
                     text-align: center;
                     transition: all 0.3s ease;
                     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -364,7 +364,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         </head>
         <body>
             <div class="container">
-                <h1>📱 Orders Mobile App</h1>
+                <h1>💎 Orders Mobile App</h1>
                 <div class="status">
                     <h2>✅ Production Ready!</h2>
                     <p><strong>Status:</strong> Live with Google Drive Database</p>
