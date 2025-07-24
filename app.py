@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:30:00
+Last updated: 2025-07-24 09:21:00
 """
 
 import os
@@ -262,6 +262,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Orders Mobile App</title>
             <style>
@@ -280,9 +281,16 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 }}
                 h1 {{ 
-                    color: #333; 
+                    color: #2c3e50; 
                     text-align: center; 
                     margin-bottom: 30px;
+                    font-size: 28px;
+                    font-weight: 600;
+                }}
+                h2 {{
+                    color: #27ae60;
+                    margin: 0 0 15px 0;
+                    font-size: 20px;
                 }}
                 .grid {{
                     display: grid;
@@ -292,49 +300,73 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 }}
                 .square {{
                     aspect-ratio: 1;
-                    border-radius: 15px;
+                    border-radius: 12px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     text-decoration: none;
                     color: white;
-                    font-weight: bold;
-                    font-size: 18px;
+                    font-weight: 600;
+                    font-size: 16px;
                     text-align: center;
-                    transition: transform 0.2s;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                 }}
                 .square:hover {{
-                    transform: scale(1.05);
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 12px rgba(0,0,0,0.15);
                 }}
                 .orders {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }}
                 .labels {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }}
                 .news {{ background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }}
                 .status {{
-                    padding: 10px;
-                    background: #e8f5e8;
-                    border-radius: 5px;
-                    margin-bottom: 20px;
+                    padding: 15px;
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    border-radius: 8px;
+                    margin-bottom: 25px;
+                }}
+                .status p {{
+                    margin: 8px 0;
+                    color: #155724;
                 }}
                 .endpoint-list {{
                     background: #f8f9fa;
-                    padding: 15px;
+                    padding: 20px;
                     border-radius: 8px;
-                    margin-top: 20px;
+                    margin-top: 25px;
+                    border: 1px solid #e9ecef;
+                }}
+                .endpoint-list h3 {{
+                    color: #495057;
+                    margin-top: 0;
+                    margin-bottom: 15px;
+                    font-size: 18px;
+                }}
+                .endpoint-list ul {{
+                    margin: 0;
+                    padding-left: 20px;
+                }}
+                .endpoint-list li {{
+                    margin-bottom: 8px;
+                    color: #6c757d;
                 }}
                 .endpoint-list a {{
                     color: #007bff;
                     text-decoration: none;
+                    font-weight: 500;
                 }}
                 .endpoint-list a:hover {{
                     text-decoration: underline;
+                    color: #0056b3;
                 }}
             </style>
         </head>
         <body>
             <div class="container">
-                <h1>📱 Orders Mobile App</h1>
+                <h1>Orders Mobile App</h1>
                 <div class="status">
-                    <h2>✅ Production Ready!</h2>
+                    <h2>Production Ready!</h2>
                     <p><strong>Status:</strong> Live with Google Drive Database</p>
                     <p><strong>Version:</strong> 6.0 - Production Mobile API</p>
                     <p><strong>Timestamp:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
@@ -342,18 +374,18 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 
                 <div class="grid">
                     <a href="/orders" class="square orders">
-                        📋 Orders
+                        Orders
                     </a>
                     <a href="/labels" class="square labels">
-                        🏷️ Labels
+                        Labels
                     </a>
                     <a href="/news" class="square news">
-                        📰 News
+                        News
                     </a>
                 </div>
                 
                 <div class="endpoint-list">
-                    <h3>🔗 API Endpoints:</h3>
+                    <h3>API Endpoints:</h3>
                     <ul>
                         <li><a href="/api/customers" target="_blank">/api/customers</a> - Get all customers</li>
                         <li><a href="/api/orders/1" target="_blank">/api/orders/1</a> - Get orders for customer</li>
