@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 10:10:00
+Last updated: 2025-07-24 10:15:00
 """
 
 import os
@@ -149,6 +149,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         """Get database connection"""
         try:
             print(f"Attempting to connect to database at: {self.db_path}")
+            print(f"Environment: HOSTNAME={os.environ.get('HOSTNAME', 'None')}, PORT={os.environ.get('PORT', 'None')}")
             
             if not os.path.exists(self.db_path):
                 print(f"Database file not found at: {self.db_path}")
@@ -230,6 +231,21 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
             )
         """)
         
+        cursor.execute("""
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                email TEXT,
+                role TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME,
+                reset_token TEXT,
+                reset_token_expires DATETIME
+            )
+        """)
+        
         # Insert real customer data
         customers_data = [
             (1, 'CARACAL', 'CAR', 'Slovakia', 'EUR', 1),
@@ -264,6 +280,20 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 INSERT INTO orders (id, customer_id, order_number, order_date)
                 VALUES (?, ?, ?, ?)
             """, order)
+        
+        # Insert real user data (from your database)
+        users_data = [
+            (1, 'admin', 'bcca5246f1c995747b8e76c654ffbf53$6eed6d5edaa477aafc89d9e1df54a4eae5028365e302fccd950fd0fd71e649c8', 'admin@orders.com', 'ADMIN', 1),
+            (2, 'manager', '53e6c1608d5e84d5ecd5ac6bd658e23c$a2d907fde465f0dedad5aa97826bb423c1a435b4f7e6968dfb93661d5632c23f', 'manager@orders.com', 'MANAGER', 1),
+            (3, 'user', 'b8a8ed025a428e8b3c6708126571700f$c0ab69b6b62eed19fc078077ae3a758475fb67f7d87a6ba106809198db23b062', 'user@orders.com', 'USER', 1),
+            (4, 'viewer', 'ae28159de115822fd0881f95343a20c7$5ca00392c3ca3f95b6b59b51a06c9df1a569f025ac07926e6dbad7f18db0951d', 'viewer@orders.com', 'VIEWER', 1)
+        ]
+        
+        for user in users_data:
+            cursor.execute("""
+                INSERT INTO users (id, username, password_hash, email, role, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, user)
         
         conn.commit()
         print("Created real data in memory database")
@@ -792,8 +822,10 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def _verify_user(self, username, password):
         """Verify user credentials"""
+        print(f"Attempting to verify user: {username}")
         conn = self._get_db_connection()
         if not conn:
+            print("No database connection available")
             return None
         
         try:
@@ -805,13 +837,20 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
             """, (username,))
             user = cursor.fetchone()
             
-            if user and self._verify_password(password, user[2]):
-                return {
-                    'id': user[0],
-                    'username': user[1],
-                    'role': user[3],
-                    'is_active': user[4]
-                }
+            if user:
+                print(f"Found user: {user[1]}, role: {user[3]}")
+                if self._verify_password(password, user[2]):
+                    print("Password verification successful")
+                    return {
+                        'id': user[0],
+                        'username': user[1],
+                        'role': user[3],
+                        'is_active': user[4]
+                    }
+                else:
+                    print("Password verification failed")
+            else:
+                print(f"User not found: {username}")
         except Exception as e:
             print(f"Error verifying user: {e}")
         finally:
