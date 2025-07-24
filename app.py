@@ -390,296 +390,210 @@ def delete_user(user_id):
 @app.route('/')
 @login_required
 def index():
-    """Enhanced Dashboard - Home screen"""
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Orders Management System</title>
-        <style>
-            * { box-sizing: border-box; }
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-                margin: 0; 
-                padding: 0;
-                background: #f8f9fa;
-                color: #333;
-            }
-            .header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 20px;
-                text-align: center;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 2rem;
-                font-weight: 300;
-            }
-            .user-info {
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                color: white;
-                font-size: 0.9rem;
-            }
-            .logout-btn {
-                background: rgba(255,255,255,0.2);
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                cursor: pointer;
-                text-decoration: none;
-                margin-left: 10px;
-            }
-            .logout-btn:hover {
-                background: rgba(255,255,255,0.3);
-            }
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                padding: 20px;
-            }
-            .dashboard-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                gap: 20px;
-                margin-bottom: 30px;
-            }
-            .card {
-                background: white;
-                border-radius: 12px;
-                padding: 25px;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.07);
-                transition: transform 0.2s, box-shadow 0.2s;
-            }
-            .card:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-            }
-            .card h3 {
-                margin: 0 0 15px 0;
-                color: #2c3e50;
-                font-size: 1.2rem;
-                font-weight: 600;
-            }
-            .metric {
-                font-size: 2.5rem;
-                font-weight: 700;
-                color: #667eea;
-                margin: 10px 0;
-            }
-            .metric-label {
-                color: #6c757d;
-                font-size: 0.9rem;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .nav-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                gap: 15px;
-                margin-top: 30px;
-            }
-            .nav-item {
-                background: white;
-                border-radius: 12px;
-                padding: 25px;
-                text-decoration: none;
-                color: #333;
-                display: flex;
-                align-items: center;
-                gap: 15px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-                transition: all 0.2s;
-                border: 2px solid transparent;
-            }
-            .nav-item:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-                border-color: #667eea;
-                text-decoration: none;
-                color: #333;
-            }
-            .nav-icon {
-                width: 50px;
-                height: 50px;
-                border-radius: 12px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1.5rem;
-                color: white;
-                font-weight: bold;
-            }
-            .nav-text h4 {
-                margin: 0 0 5px 0;
-                font-size: 1.1rem;
-                font-weight: 600;
-            }
-            .nav-text p {
-                margin: 0;
-                color: #6c757d;
-                font-size: 0.9rem;
-            }
-            .orders-icon { background: linear-gradient(135deg, #667eea, #764ba2); }
-            .labels-icon { background: linear-gradient(135deg, #f093fb, #f5576c); }
-            .production-icon { background: linear-gradient(135deg, #4facfe, #00f2fe); }
-            .employees-icon { background: linear-gradient(135deg, #43e97b, #38f9d7); }
-            .components-icon { background: linear-gradient(135deg, #fa709a, #fee140); }
-            .reports-icon { background: linear-gradient(135deg, #a8edea, #fed6e3); }
-            .mobile-icon { background: linear-gradient(135deg, #ffecd2, #fcb69f); }
-            
-            .status-indicator {
-                display: inline-block;
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                margin-right: 8px;
-            }
-            .status-active { background: #28a745; }
-            .status-pending { background: #ffc107; }
-            .status-complete { background: #6c757d; }
-            
-            @media (max-width: 768px) {
-                .container { padding: 15px; }
-                .dashboard-grid { grid-template-columns: 1fr; }
-                .nav-grid { grid-template-columns: 1fr; }
-                .header h1 { font-size: 1.5rem; }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>📊 Orders Management Dashboard</h1>
-            <p>Comprehensive web interface for managing orders, production, and employees</p>
-            <div class="user-info">
-                Logged in as: {{ session['username'] }} ({{ get_role_display_name(session['role']) }})
-                <a href="/logout" class="logout-btn">Logout</a>
-            </div>
-        </div>
+    """Main dashboard page"""
+    try:
+        # Get user info for display
+        db_session = get_session()
+        user = db_session.query(User).filter(User.id == session['user_id']).first()
         
-        <div class="container">
-            <div class="dashboard-grid">
-                <div class="card">
-                    <h3>📈 Key Metrics</h3>
-                    <div class="metric" id="total-orders">-</div>
-                    <div class="metric-label">Total Orders</div>
-                </div>
-                <div class="card">
-                    <h3>👥 Active Customers</h3>
-                    <div class="metric" id="active-customers">-</div>
-                    <div class="metric-label">This Month</div>
-                </div>
-                <div class="card">
-                    <h3>📦 Pending Deliveries</h3>
-                    <div class="metric" id="pending-deliveries">-</div>
-                    <div class="metric-label">This Week</div>
-                </div>
-                <div class="card">
-                    <h3>👨‍💼 Active Employees</h3>
-                    <div class="metric" id="active-employees">-</div>
-                    <div class="metric-label">Currently Employed</div>
-                </div>
-            </div>
-            
-            <div class="nav-grid">
-                <a href="/orders" class="nav-item">
-                    <div class="nav-icon orders-icon">📋</div>
-                    <div class="nav-text">
-                        <h4>Orders Management</h4>
-                        <p>View and manage customer orders</p>
-                    </div>
-                </a>
-                
-                <a href="/labels" class="nav-item">
-                    <div class="nav-icon labels-icon">🏷️</div>
-                    <div class="nav-text">
-                        <h4>Label Generation</h4>
-                        <p>Create and print product labels</p>
-                    </div>
-                </a>
-                
-                <a href="/production" class="nav-item">
-                    <div class="nav-icon production-icon">🏭</div>
-                    <div class="nav-text">
-                        <h4>Production Planning</h4>
-                        <p>Manage production schedules</p>
-                    </div>
-                </a>
-                
-                <a href="/employees" class="nav-item">
-                    <div class="nav-icon employees-icon">👥</div>
-                    <div class="nav-text">
-                        <h4>Employee Management</h4>
-                        <p>Manage employee records and contracts</p>
-                    </div>
-                </a>
-                
-                <a href="/components" class="nav-item">
-                    <div class="nav-icon components-icon">🔧</div>
-                    <div class="nav-text">
-                        <h4>Components & Products</h4>
-                        <p>Manage BOM and product components</p>
-                    </div>
-                </a>
-                
-                <a href="/reports" class="nav-item">
-                    <div class="nav-icon reports-icon">📊</div>
-                    <div class="nav-text">
-                        <h4>Reports & Analytics</h4>
-                        <p>Generate reports and view analytics</p>
-                    </div>
-                </a>
-                
-                <a href="/mobile" class="nav-item">
-                    <div class="nav-icon mobile-icon">📱</div>
-                    <div class="nav-text">
-                        <h4>Mobile Interface</h4>
-                        <p>Access mobile-optimized interface</p>
-                    </div>
-                </a>
-                
-                {% if session['role'] == 'admin' %}
-                <a href="/users" class="nav-item">
-                    <div class="nav-icon" style="background: linear-gradient(135deg, #ff6b6b, #ee5a24);">👥</div>
-                    <div class="nav-text">
-                        <h4>User Management</h4>
-                        <p>Manage system users and permissions</p>
-                    </div>
-                </a>
-                {% endif %}
-            </div>
-        </div>
+        if not user:
+            return redirect(url_for('login'))
         
-        <script>
-            // Load dashboard metrics
-            async function loadMetrics() {
-                try {
-                    const response = await fetch('/api/dashboard-metrics');
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        document.getElementById('total-orders').textContent = data.metrics.total_orders;
-                        document.getElementById('active-customers').textContent = data.metrics.active_customers;
-                        document.getElementById('pending-deliveries').textContent = data.metrics.pending_deliveries;
-                        document.getElementById('active-employees').textContent = data.metrics.active_employees;
-                    }
-                } catch (error) {
-                    console.error('Error loading metrics:', error);
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Orders Management Dashboard</title>
+            <style>
+                body { 
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+                    margin: 0; 
+                    padding: 20px;
+                    background: #f8f9fa;
                 }
-            }
+                .container { 
+                    max-width: 1200px; 
+                    margin: 0 auto; 
+                    background: white; 
+                    padding: 30px; 
+                    border-radius: 12px; 
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+                }
+                .header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 30px;
+                    padding-bottom: 20px;
+                    border-bottom: 1px solid #eee;
+                }
+                .user-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 15px;
+                }
+                .user-role {
+                    background: #007AFF;
+                    color: white;
+                    padding: 4px 12px;
+                    border-radius: 20px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                .logout-btn {
+                    padding: 8px 16px;
+                    background: #dc3545;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    font-size: 14px;
+                }
+                .grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 30px;
+                }
+                .card {
+                    background: white;
+                    border: 1px solid #e9ecef;
+                    border-radius: 8px;
+                    padding: 20px;
+                    text-decoration: none;
+                    color: inherit;
+                    transition: all 0.2s;
+                }
+                .card:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }
+                .card h3 {
+                    margin: 0 0 10px 0;
+                    color: #2c3e50;
+                }
+                .card p {
+                    margin: 0;
+                    color: #6c757d;
+                    font-size: 14px;
+                }
+                .metrics {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 15px;
+                    margin-bottom: 30px;
+                }
+                .metric {
+                    background: white;
+                    border: 1px solid #e9ecef;
+                    border-radius: 8px;
+                    padding: 20px;
+                    text-align: center;
+                }
+                .metric-value {
+                    font-size: 2em;
+                    font-weight: bold;
+                    color: #007AFF;
+                    margin-bottom: 5px;
+                }
+                .metric-label {
+                    color: #6c757d;
+                    font-size: 14px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div>
+                        <h1>📊 Orders Management Dashboard</h1>
+                        <div class="user-info">
+                            <span>Welcome, <strong>{{ session.get('username', 'User') }}</strong></span>
+                            <span class="user-role">{{ get_role_display_name(session.get('role', 'viewer')) }}</span>
+                        </div>
+                    </div>
+                    <a href="/logout" class="logout-btn">Logout</a>
+                </div>
+                
+                <div class="metrics" id="metrics">
+                    <div class="metric">
+                        <div class="metric-value" id="total-orders">-</div>
+                        <div class="metric-label">Total Orders</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="active-customers">-</div>
+                        <div class="metric-label">Active Customers</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="pending-deliveries">-</div>
+                        <div class="metric-label">Pending Deliveries</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="active-employees">-</div>
+                        <div class="metric-label">Active Employees</div>
+                    </div>
+                </div>
+                
+                <div class="grid">
+                    <a href="/orders" class="card">
+                        <h3>📋 Orders Management</h3>
+                        <p>View and manage customer orders, track deliveries, and monitor order status.</p>
+                    </a>
+                    
+                    <a href="/production" class="card">
+                        <h3>🏭 Production Planning</h3>
+                        <p>Create and manage production plans, track manufacturing schedules.</p>
+                    </a>
+                    
+                    <a href="/employees" class="card">
+                        <h3>👥 Employee Management</h3>
+                        <p>Manage employee information, track employment details and contracts.</p>
+                    </a>
+                    
+                    <a href="/labels" class="card">
+                        <h3>🏷️ Label Generation</h3>
+                        <p>Generate shipping labels and barcodes for order items.</p>
+                    </a>
+                    
+                    <a href="/mobile" class="card">
+                        <h3>📱 Mobile Interface</h3>
+                        <p>Mobile-optimized interface for on-the-go order management.</p>
+                    </a>
+                    
+                    {% if session.get('role') == 'admin' %}
+                    <a href="/users" class="card">
+                        <h3>👤 User Management</h3>
+                        <p>Manage user accounts, roles, and permissions.</p>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
             
-            // Load metrics on page load
-            loadMetrics();
-        </script>
-    </body>
-    </html>
-    """
-    return render_template_string(html, session=session, get_role_display_name=get_role_display_name)
+            <script>
+                // Load dashboard metrics
+                fetch('/api/dashboard-metrics')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('total-orders').textContent = data.metrics.total_orders;
+                            document.getElementById('active-customers').textContent = data.metrics.active_customers;
+                            document.getElementById('pending-deliveries').textContent = data.metrics.pending_deliveries;
+                            document.getElementById('active-employees').textContent = data.metrics.active_employees;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading metrics:', error);
+                    });
+            </script>
+        </body>
+        </html>
+        """
+        return render_template_string(html, session=session, get_role_display_name=get_role_display_name)
+    except Exception as e:
+        print(f"Error in dashboard route: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Internal Server Error: {str(e)}", 500
 
 @app.route('/api/dashboard-metrics')
 def dashboard_metrics():
@@ -721,6 +635,9 @@ def dashboard_metrics():
         })
         
     except Exception as e:
+        print(f"Error in dashboard metrics: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/orders')
