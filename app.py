@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:15:00
+Last updated: 2025-07-24 09:20:00
 """
 
 import os
@@ -340,8 +340,8 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 <h3>API Endpoints:</h3>
                 <ul>
                     <li><a href="/api/customers">/api/customers</a> - Get all customers</li>
-                    <li><a href="/api/orders/1">/api/orders/{customer_id}</a> - Get orders for customer</li>
-                    <li><a href="/api/order-items/1">/api/order-items/{order_id}</a> - Get order items</li>
+                    <li><a href="/api/orders/1">/api/orders/1</a> - Get orders for customer</li>
+                    <li><a href="/api/order-items/1">/api/order-items/1</a> - Get order items</li>
                     <li><a href="/health">/health</a> - Health check</li>
                 </ul>
             </div>
