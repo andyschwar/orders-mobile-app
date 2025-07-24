@@ -32,20 +32,31 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-pr
 CORS(app)
 
 # Initialize database connection
-engine = init_db()
-Session = sessionmaker(bind=engine)
+try:
+    print("Initializing database...")
+    engine = init_db()
+    Session = sessionmaker(bind=engine)
+    print("Database initialized successfully!")
+except Exception as e:
+    print(f"Error initializing database: {e}")
+    import traceback
+    traceback.print_exc()
+    raise
 
 def get_session():
     return Session()
 
 # Create default users if they don't exist
 try:
+    print("Creating default users...")
     db_session = get_session()
     create_default_users(db_session)
     db_session.close()
     print("Default users created successfully!")
 except Exception as e:
     print(f"Warning: Could not create default users: {e}")
+    import traceback
+    traceback.print_exc()
 
 # Global storage for label cart (from mobile API)
 label_cart = []
@@ -2285,38 +2296,44 @@ def create_employee():
 # (generate_label, add_label, cart management, etc.)
 
 if __name__ == '__main__':
-    print("Starting enhanced web application...")
-    print("Available endpoints:")
-    print("  GET  /login               - Login page")
-    print("  POST /login               - Login authentication")
-    print("  GET  /logout              - Logout")
-    print("  GET  /                    - Dashboard (requires login)")
-    print("  GET  /orders              - Orders Management (requires login)")
-    print("  GET  /production          - Production Planning (requires login)")
-    print("  GET  /employees           - Employee Management (requires login)")
-    print("  GET  /labels              - Label Generation (requires login)")
-    print("  GET  /mobile              - Mobile Interface (requires login)")
-    print("  GET  /users               - User Management (admin only)")
-    print("  GET  /api/dashboard-metrics")
-    print("  GET  /api/all-orders")
-    print("  GET  /api/customers")
-    print("  GET  /api/orders/<customer_id>")
-    print("  GET  /api/undelivered-items/<order_id>")
-    print("  GET  /api/production-plans")
-    print("  POST /api/production-plans")
-    print("  GET  /api/employees")
-    print("  POST /api/employees")
-    print("  GET  /api/users           - Get all users (admin only)")
-    print("  POST /api/users           - Create user (admin only)")
-    print("  PUT  /api/users/<id>      - Update user (admin only)")
-    print("  DELETE /api/users/<id>    - Delete user (admin only)")
-    print("  POST /api/generate-label  - Generate single label")
-    print("  POST /api/add-to-cart     - Add item to label cart")
-    print("  GET  /api/cart            - Get cart contents")
-    print("  POST /api/cart/clear      - Clear cart")
-    print("  POST /api/cart/generate-labels - Generate batch labels")
-    
-    # Use PORT environment variable for Render deployment
-    port = int(os.environ.get('PORT', 5002))
-    print(f"\nServer will be available at: http://localhost:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    try:
+        print("Starting enhanced web application...")
+        print("Available endpoints:")
+        print("  GET  /login               - Login page")
+        print("  POST /login               - Login authentication")
+        print("  GET  /logout              - Logout")
+        print("  GET  /                    - Dashboard (requires login)")
+        print("  GET  /orders              - Orders Management (requires login)")
+        print("  GET  /production          - Production Planning (requires login)")
+        print("  GET  /employees           - Employee Management (requires login)")
+        print("  GET  /labels              - Label Generation (requires login)")
+        print("  GET  /mobile              - Mobile Interface (requires login)")
+        print("  GET  /users               - User Management (admin only)")
+        print("  GET  /api/dashboard-metrics")
+        print("  GET  /api/all-orders")
+        print("  GET  /api/customers")
+        print("  GET  /api/orders/<customer_id>")
+        print("  GET  /api/undelivered-items/<order_id>")
+        print("  GET  /api/production-plans")
+        print("  POST /api/production-plans")
+        print("  GET  /api/employees")
+        print("  POST /api/employees")
+        print("  GET  /api/users           - Get all users (admin only)")
+        print("  POST /api/users           - Create user (admin only)")
+        print("  PUT  /api/users/<id>      - Update user (admin only)")
+        print("  DELETE /api/users/<id>    - Delete user (admin only)")
+        print("  POST /api/generate-label  - Generate single label")
+        print("  POST /api/add-to-cart     - Add item to label cart")
+        print("  GET  /api/cart            - Get cart contents")
+        print("  POST /api/cart/clear      - Clear cart")
+        print("  POST /api/cart/generate-labels - Generate batch labels")
+        
+        # Use PORT environment variable for Render deployment
+        port = int(os.environ.get('PORT', 5002))
+        print(f"\nServer will be available at: http://localhost:{port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except Exception as e:
+        print(f"Error starting application: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
