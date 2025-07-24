@@ -49,7 +49,7 @@ class SupabaseMobileHandler(BaseHTTPRequestHandler):
                 return False
             
             salt, hash_part = password_hash.split('$', 1)
-            expected_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+            expected_hash = hashlib.sha256((password + salt).encode()).hexdigest()
             return expected_hash == hash_part
         except:
             return False
