@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:40:00
+Last updated: 2025-07-24 10:03:00
 """
 
 import os
@@ -451,54 +451,54 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 <script>
                     // Check authentication
                     const token = localStorage.getItem('authToken');
-                    const user = JSON.parse(localStorage.getItem('user') || '{}');
+                    const user = JSON.parse(localStorage.getItem('user') || '{{}}');
                     
-                    if (!token) {
+                    if (!token) {{
                         window.location.href = '/login';
-                    } else {
+                    }} else {{
                         document.getElementById('username').textContent = user.username || 'User';
-                    }
+                    }}
                     
-                    async function logout() {
-                        try {
-                            await fetch('/logout', {
+                    async function logout() {{
+                        try {{
+                            await fetch('/logout', {{
                                 method: 'GET',
-                                headers: {
+                                headers: {{
                                     'Authorization': 'Bearer ' + token
-                                }
-                            });
-                        } catch (error) {
+                                }}
+                            }});
+                        }} catch (error) {{
                             console.log('Logout error:', error);
-                        }
+                        }}
                         
                         localStorage.removeItem('authToken');
                         localStorage.removeItem('user');
                         window.location.href = '/login';
-                    }
+                    }}
                     
                     // Add auth token to all API requests
-                    document.addEventListener('DOMContentLoaded', function() {
+                    document.addEventListener('DOMContentLoaded', function() {{
                         const links = document.querySelectorAll('a[href^="/api/"]');
-                        links.forEach(link => {
-                            link.addEventListener('click', function(e) {
+                        links.forEach(link => {{
+                            link.addEventListener('click', function(e) {{
                                 e.preventDefault();
                                 const url = this.href;
                                 
-                                fetch(url, {
-                                    headers: {
+                                fetch(url, {{
+                                    headers: {{
                                         'Authorization': 'Bearer ' + token
-                                    }
-                                })
+                                    }}
+                                }})
                                 .then(response => response.json())
-                                .then(data => {
+                                .then(data => {{
                                     alert(JSON.stringify(data, null, 2));
-                                })
-                                .catch(error => {
+                                }})
+                                .catch(error => {{
                                     alert('Error: ' + error.message);
-                                });
-                            });
-                        });
-                    });
+                                }});
+                            }});
+                        }});
+                    }});
                 </script>
         </body>
         </html>
