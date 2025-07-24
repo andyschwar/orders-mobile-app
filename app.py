@@ -40,9 +40,9 @@ def get_session():
 
 # Create default users if they don't exist
 try:
-    session = get_session()
-    create_default_users(session)
-    session.close()
+    db_session = get_session()
+    create_default_users(db_session)
+    db_session.close()
     print("Default users created successfully!")
 except Exception as e:
     print(f"Warning: Could not create default users: {e}")
@@ -674,20 +674,20 @@ def index():
 def dashboard_metrics():
     """Get dashboard metrics"""
     try:
-        session = get_session()
+        db_session = get_session()
         
         # Total orders
-        total_orders = session.query(Order).count()
+        total_orders = db_session.query(Order).count()
         
         # Active customers this month
         this_month = datetime.now().replace(day=1)
-        active_customers = session.query(Order.customer_id).filter(
+        active_customers = db_session.query(Order.customer_id).filter(
             Order.order_date >= this_month
         ).distinct().count()
         
         # Pending deliveries this week
         this_week = datetime.now().date() - timedelta(days=7)
-        pending_deliveries = session.query(OrderItem).filter(
+        pending_deliveries = db_session.query(OrderItem).filter(
             and_(
                 OrderItem.delivery_date >= this_week,
                 OrderItem.delivered_quantity < OrderItem.quantity
@@ -695,7 +695,7 @@ def dashboard_metrics():
         ).count()
         
         # Active employees
-        active_employees = session.query(Employee).filter(
+        active_employees = db_session.query(Employee).filter(
             Employee.is_active == True
         ).count()
         
@@ -963,9 +963,9 @@ def orders_page():
 def get_all_orders():
     """Get all orders with items"""
     try:
-        session = get_session()
+        db_session = get_session()
         
-        orders = session.query(Order).all()
+        orders = db_session.query(Order).all()
         orders_data = []
         
         for order in orders:
@@ -1351,10 +1351,10 @@ def generate_label():
     """Generate a label for an order item"""
     try:
         data = request.json
-        session = get_session()
+        db_session = get_session()
         
         # Get order item
-        order_item = session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
+        order_item = db_session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
         if not order_item:
             return jsonify({'error': 'Order item not found'}), 404
         
@@ -1391,10 +1391,10 @@ def add_to_cart():
     """Add an order item to the label cart"""
     try:
         data = request.json
-        session = get_session()
+        db_session = get_session()
         
         # Get order item
-        order_item = session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
+        order_item = db_session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
         if not order_item:
             return jsonify({'error': 'Order item not found'}), 404
         
@@ -1491,8 +1491,8 @@ def generate_cart_labels():
 def get_customers():
     """Get all customers"""
     try:
-        session = get_session()
-        customers = session.query(Customer).order_by(Customer.name_index).all()
+        db_session = get_session()
+        customers = db_session.query(Customer).order_by(Customer.name_index).all()
         
         customers_data = []
         for customer in customers:
@@ -1516,8 +1516,8 @@ def get_customers():
 def get_orders(customer_id):
     """Get orders for a specific customer"""
     try:
-        session = get_session()
-        orders = session.query(Order).filter(Order.customer_id == customer_id).all()
+        db_session = get_session()
+        orders = db_session.query(Order).filter(Order.customer_id == customer_id).all()
         
         orders_data = []
         for order in orders:
@@ -1540,8 +1540,8 @@ def get_orders(customer_id):
 def get_undelivered_items(order_id):
     """Get undelivered items for an order"""
     try:
-        session = get_session()
-        order_items = session.query(OrderItem).filter(
+        db_session = get_session()
+        order_items = db_session.query(OrderItem).filter(
             and_(
                 OrderItem.order_id == order_id,
                 OrderItem.delivered_quantity < OrderItem.quantity
@@ -1574,8 +1574,8 @@ def get_undelivered_items(order_id):
 def get_order_items(order_id):
     """Get all items for an order"""
     try:
-        session = get_session()
-        order_items = session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        db_session = get_session()
+        order_items = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
         
         items_data = []
         for item in order_items:
@@ -1601,8 +1601,8 @@ def get_order_items(order_id):
 def get_production_plans():
     """Get all production plans"""
     try:
-        session = get_session()
-        plans = session.query(ProductionPlan).all()
+        db_session = get_session()
+        plans = db_session.query(ProductionPlan).all()
         
         plans_data = []
         for plan in plans:
@@ -1632,7 +1632,7 @@ def create_production_plan():
     """Create a new production plan"""
     try:
         data = request.json
-        session = get_session()
+        db_session = get_session()
         
         # Parse dates
         delivery_date = None
@@ -1654,8 +1654,8 @@ def create_production_plan():
             surface_treatment=data.get('surface_treatment')
         )
         
-        session.add(new_plan)
-        session.commit()
+        db_session.add(new_plan)
+        db_session.commit()
         
         return jsonify({
             'success': True,
@@ -2207,8 +2207,8 @@ def users_page():
 def get_employees():
     """Get all employees"""
     try:
-        session = get_session()
-        employees = session.query(Employee).all()
+        db_session = get_session()
+        employees = db_session.query(Employee).all()
         
         employees_data = []
         for employee in employees:
@@ -2240,7 +2240,7 @@ def create_employee():
     """Create a new employee"""
     try:
         data = request.json
-        session = get_session()
+        db_session = get_session()
         
         # Parse dates
         birthday = None
@@ -2269,8 +2269,8 @@ def create_employee():
             is_active=data.get('is_active', True)
         )
         
-        session.add(new_employee)
-        session.commit()
+        db_session.add(new_employee)
+        db_session.commit()
         
         return jsonify({
             'success': True,
