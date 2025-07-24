@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:00:00
+Last updated: 2025-07-24 09:15:00
 """
 
 import os
@@ -383,7 +383,14 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         try:
             cursor = conn.cursor()
             cursor.execute("SELECT id, name, name_index FROM customers ORDER BY name")
-            customers = [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            customers = []
+            for row in rows:
+                customers.append({
+                    'id': row[0],
+                    'name': row[1],
+                    'name_index': row[2]
+                })
             self.wfile.write(json.dumps(customers).encode())
         except Exception as e:
             self.wfile.write(json.dumps({'error': str(e)}).encode())
@@ -406,7 +413,15 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 WHERE o.customer_id = ?
                 ORDER BY o.order_date DESC
             """, (customer_id,))
-            orders = [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            orders = []
+            for row in rows:
+                orders.append({
+                    'id': row[0],
+                    'order_number': row[1],
+                    'order_date': row[2],
+                    'customer_name': row[3]
+                })
             self.wfile.write(json.dumps(orders).encode())
         except Exception as e:
             self.wfile.write(json.dumps({'error': str(e)}).encode())
