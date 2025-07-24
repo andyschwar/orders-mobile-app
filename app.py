@@ -2,14 +2,16 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:30:00
+Last updated: 2025-07-24 09:40:00
 """
 
 import os
 import sys
 import json
 import sqlite3
-from datetime import datetime, date
+import hashlib
+import secrets
+from datetime import datetime, date, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import urllib.parse
 import tempfile
@@ -17,6 +19,9 @@ import traceback
 
 # Add the src directory to the path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+# Global session storage (in production, use Redis or database)
+active_sessions = {}
 
 class ProductionMobileHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -29,27 +34,38 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         try:
             if self.path == '/':
                 self._serve_homepage()
+            elif self.path == '/login':
+                self._serve_login_page()
+            elif self.path == '/logout':
+                self._handle_logout()
             elif self.path == '/health':
                 self._serve_health()
             elif self.path == '/test':
                 self._serve_test()
             elif self.path == '/api/customers':
-                self._serve_customers()
+                if self._check_auth():
+                    self._serve_customers()
             elif self.path.startswith('/api/orders/'):
-                customer_id = self.path.split('/')[-1]
-                self._serve_orders(customer_id)
+                if self._check_auth():
+                    customer_id = self.path.split('/')[-1]
+                    self._serve_orders(customer_id)
             elif self.path.startswith('/api/order-items/'):
-                order_id = self.path.split('/')[-1]
-                self._serve_order_items(order_id)
+                if self._check_auth():
+                    order_id = self.path.split('/')[-1]
+                    self._serve_order_items(order_id)
             elif self.path == '/api/customers-by-date':
-                self._serve_customers_by_date()
+                if self._check_auth():
+                    self._serve_customers_by_date()
             elif self.path == '/api/order-items-by-date':
-                self._serve_order_items_by_date()
+                if self._check_auth():
+                    self._serve_order_items_by_date()
             elif self.path == '/api/order-items-by-date-all':
-                self._serve_order_items_by_date_all()
+                if self._check_auth():
+                    self._serve_order_items_by_date_all()
             elif self.path.startswith('/api/undelivered-items/'):
-                order_id = self.path.split('/')[-1]
-                self._serve_undelivered_items(order_id)
+                if self._check_auth():
+                    order_id = self.path.split('/')[-1]
+                    self._serve_undelivered_items(order_id)
             else:
                 self.send_response(404)
                 self.send_header('Content-type', 'application/json')
@@ -67,31 +83,33 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def do_POST(self):
         """Handle POST requests"""
-        # Set CORS headers
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-        
         try:
-            if self.path == '/api/generate-label':
-                self._handle_generate_label()
+            if self.path == '/api/login':
+                self._handle_login()
+            elif self.path == '/api/generate-label':
+                if self._check_auth():
+                    self._handle_generate_label()
             elif self.path == '/api/add-label':
-                self._handle_add_label()
+                if self._check_auth():
+                    self._handle_add_label()
             elif self.path == '/api/clear-cart':
-                self._handle_clear_cart()
+                if self._check_auth():
+                    self._handle_clear_cart()
             elif self.path == '/api/export-labels':
-                self._handle_export_labels()
+                if self._check_auth():
+                    self._handle_export_labels()
             else:
                 self.send_response(404)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': 'Endpoint not found'}).encode())
                 
         except Exception as e:
             print(f"Error handling POST request: {e}")
             self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({'error': str(e)}).encode())
     
@@ -280,12 +298,39 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     border-radius: 10px; 
                     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 }}
+                .header {{
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }}
                 h1 {{ 
                     color: #2c3e50; 
-                    text-align: center; 
-                    margin-bottom: 30px;
-                    font-size: 28px;
+                    margin: 0;
+                    font-size: 24px;
                     font-weight: 600;
+                }}
+                .user-info {{
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }}
+                .user-info span {{
+                    color: #6c757d;
+                    font-weight: 500;
+                }}
+                .logout-btn {{
+                    padding: 8px 16px;
+                    background: #dc3545;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    cursor: pointer;
+                    transition: background 0.3s;
+                }}
+                .logout-btn:hover {{
+                    background: #c82333;
                 }}
                 h2 {{
                     color: #27ae60;
@@ -363,38 +408,98 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
             </style>
         </head>
         <body>
-            <div class="container">
-                <h1>💎 Orders Mobile App</h1>
-                <div class="status">
-                    <h2>✅ Production Ready!</h2>
-                    <p><strong>Status:</strong> Live with Google Drive Database</p>
-                    <p><strong>Version:</strong> 6.0 - Production Mobile API</p>
-                    <p><strong>Timestamp:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+                            <div class="container">
+                    <div class="header">
+                        <h1>💎 Orders Mobile App</h1>
+                        <div class="user-info">
+                            <span id="username">Loading...</span>
+                            <button onclick="logout()" class="logout-btn">Logout</button>
+                        </div>
+                    </div>
+                    
+                    <div class="status">
+                        <h2>✅ Production Ready!</h2>
+                        <p><strong>Status:</strong> Live with Google Drive Database</p>
+                        <p><strong>Version:</strong> 6.0 - Production Mobile API</p>
+                        <p><strong>Timestamp:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+                    </div>
+                    
+                    <div class="grid">
+                        <a href="/orders" class="square orders">
+                            📋 Orders
+                        </a>
+                        <a href="/labels" class="square labels">
+                            🏷️ Labels
+                        </a>
+                        <a href="/news" class="square news">
+                            📰 News
+                        </a>
+                    </div>
+                    
+                    <div class="endpoint-list">
+                        <h3>🔗 API Endpoints:</h3>
+                        <ul>
+                            <li><a href="/api/customers" target="_blank">/api/customers</a> - Get all customers</li>
+                            <li><a href="/api/orders/1" target="_blank">/api/orders/1</a> - Get orders for customer</li>
+                            <li><a href="/api/order-items/1" target="_blank">/api/order-items/1</a> - Get order items</li>
+                            <li><a href="/health" target="_blank">/health</a> - Health check</li>
+                            <li><a href="/test" target="_blank">/test</a> - Test endpoint</li>
+                        </ul>
+                    </div>
                 </div>
                 
-                <div class="grid">
-                    <a href="/orders" class="square orders">
-                        📋 Orders
-                    </a>
-                    <a href="/labels" class="square labels">
-                        🏷️ Labels
-                    </a>
-                    <a href="/news" class="square news">
-                        📰 News
-                    </a>
-                </div>
-                
-                <div class="endpoint-list">
-                    <h3>🔗 API Endpoints:</h3>
-                    <ul>
-                        <li><a href="/api/customers" target="_blank">/api/customers</a> - Get all customers</li>
-                        <li><a href="/api/orders/1" target="_blank">/api/orders/1</a> - Get orders for customer</li>
-                        <li><a href="/api/order-items/1" target="_blank">/api/order-items/1</a> - Get order items</li>
-                        <li><a href="/health" target="_blank">/health</a> - Health check</li>
-                        <li><a href="/test" target="_blank">/test</a> - Test endpoint</li>
-                    </ul>
-                </div>
-            </div>
+                <script>
+                    // Check authentication
+                    const token = localStorage.getItem('authToken');
+                    const user = JSON.parse(localStorage.getItem('user') || '{}');
+                    
+                    if (!token) {
+                        window.location.href = '/login';
+                    } else {
+                        document.getElementById('username').textContent = user.username || 'User';
+                    }
+                    
+                    async function logout() {
+                        try {
+                            await fetch('/logout', {
+                                method: 'GET',
+                                headers: {
+                                    'Authorization': 'Bearer ' + token
+                                }
+                            });
+                        } catch (error) {
+                            console.log('Logout error:', error);
+                        }
+                        
+                        localStorage.removeItem('authToken');
+                        localStorage.removeItem('user');
+                        window.location.href = '/login';
+                    }
+                    
+                    // Add auth token to all API requests
+                    document.addEventListener('DOMContentLoaded', function() {
+                        const links = document.querySelectorAll('a[href^="/api/"]');
+                        links.forEach(link => {
+                            link.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                const url = this.href;
+                                
+                                fetch(url, {
+                                    headers: {
+                                        'Authorization': 'Bearer ' + token
+                                    }
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    alert(JSON.stringify(data, null, 2));
+                                })
+                                .catch(error => {
+                                    alert('Error: ' + error.message);
+                                });
+                            });
+                        });
+                    });
+                </script>
         </body>
         </html>
         """
@@ -652,6 +757,281 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
             'timestamp': datetime.now().isoformat()
         }
         self.wfile.write(json.dumps(response).encode())
+    
+    def _check_auth(self):
+        """Check if user is authenticated"""
+        auth_header = self.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            self.send_response(401)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Authentication required'}).encode())
+            return False
+        
+        token = auth_header.split(' ')[1]
+        if token not in active_sessions:
+            self.send_response(401)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Invalid or expired session'}).encode())
+            return False
+        
+        return True
+    
+    def _hash_password(self, password):
+        """Hash password using SHA-256"""
+        return hashlib.sha256(password.encode()).hexdigest()
+    
+    def _verify_user(self, username, password):
+        """Verify user credentials"""
+        conn = self._get_db_connection()
+        if not conn:
+            return None
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, password_hash, role, is_active 
+                FROM users 
+                WHERE username = ? AND is_active = 1
+            """, (username,))
+            user = cursor.fetchone()
+            
+            if user and user[2] == self._hash_password(password):
+                return {
+                    'id': user[0],
+                    'username': user[1],
+                    'role': user[3],
+                    'is_active': user[4]
+                }
+        except Exception as e:
+            print(f"Error verifying user: {e}")
+        finally:
+            conn.close()
+        
+        return None
+    
+    def _handle_login(self):
+        """Handle login request"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            username = data.get('username')
+            password = data.get('password')
+            remember_me = data.get('remember_me', False)
+            
+            if not username or not password:
+                self.wfile.write(json.dumps({'error': 'Username and password required'}).encode())
+                return
+            
+            user = self._verify_user(username, password)
+            if not user:
+                self.wfile.write(json.dumps({'error': 'Invalid credentials'}).encode())
+                return
+            
+            # Generate session token
+            token = secrets.token_urlsafe(32)
+            expiry = datetime.now() + timedelta(days=30 if remember_me else 1)
+            
+            active_sessions[token] = {
+                'user_id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+                'expires': expiry
+            }
+            
+            response = {
+                'success': True,
+                'token': token,
+                'user': {
+                    'username': user['username'],
+                    'role': user['role']
+                },
+                'expires': expiry.isoformat()
+            }
+            
+            self.wfile.write(json.dumps(response).encode())
+            
+        except Exception as e:
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
+    
+    def _handle_logout(self):
+        """Handle logout request"""
+        auth_header = self.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+            if token in active_sessions:
+                del active_sessions[token]
+        
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps({'success': True, 'message': 'Logged out successfully'}).encode())
+    
+    def _serve_login_page(self):
+        """Serve login page"""
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Login - Orders Mobile App</title>
+            <style>
+                body { 
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+                    margin: 0; 
+                    padding: 20px;
+                    background: #f5f5f5;
+                }
+                .container { 
+                    max-width: 400px; 
+                    margin: 50px auto; 
+                    background: white; 
+                    padding: 30px; 
+                    border-radius: 10px; 
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }
+                h1 { 
+                    color: #2c3e50; 
+                    text-align: center; 
+                    margin-bottom: 30px;
+                }
+                .form-group {
+                    margin-bottom: 20px;
+                }
+                label {
+                    display: block;
+                    margin-bottom: 5px;
+                    color: #495057;
+                    font-weight: 500;
+                }
+                input[type="text"], input[type="password"] {
+                    width: 100%;
+                    padding: 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    box-sizing: border-box;
+                }
+                .checkbox-group {
+                    display: flex;
+                    align-items: center;
+                    margin-bottom: 20px;
+                }
+                .checkbox-group input[type="checkbox"] {
+                    margin-right: 10px;
+                }
+                button {
+                    width: 100%;
+                    padding: 12px;
+                    background: #007bff;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    cursor: pointer;
+                    transition: background 0.3s;
+                }
+                button:hover {
+                    background: #0056b3;
+                }
+                .error {
+                    color: #dc3545;
+                    margin-top: 10px;
+                    text-align: center;
+                }
+                .success {
+                    color: #28a745;
+                    margin-top: 10px;
+                    text-align: center;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>💎 Orders Mobile App</h1>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" name="username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="remember" name="remember">
+                        <label for="remember">Remember me (30 days)</label>
+                    </div>
+                    <button type="submit">Login</button>
+                </form>
+                <div id="message"></div>
+            </div>
+            
+            <script>
+                document.getElementById('loginForm').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const username = document.getElementById('username').value;
+                    const password = document.getElementById('password').value;
+                    const remember = document.getElementById('remember').checked;
+                    
+                    try {
+                        const response = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                username: username,
+                                password: password,
+                                remember_me: remember
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            // Store token
+                            localStorage.setItem('authToken', data.token);
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            
+                            // Redirect to main app
+                            window.location.href = '/';
+                        } else {
+                            document.getElementById('message').innerHTML = '<div class="error">' + data.error + '</div>';
+                        }
+                    } catch (error) {
+                        document.getElementById('message').innerHTML = '<div class="error">Login failed. Please try again.</div>';
+                    }
+                });
+                
+                // Check if already logged in
+                const token = localStorage.getItem('authToken');
+                if (token) {
+                    window.location.href = '/';
+                }
+            </script>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode())
 
 def run_server():
     """Run the production mobile API server"""
