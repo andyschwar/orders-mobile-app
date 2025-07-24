@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from models.database import (
     Order, Customer, OrderItem, Item, Product, Delivery, DeliveryTerm,
     ProductionPlan, Employee, Component, ProductComponent, User, UserRole,
-    get_database_path, init_db, create_default_users
+    get_database_path, init_db
 )
 from utils.label_generator import LabelGenerator
-from utils.auth import authenticate_user, hash_password, verify_password, get_role_display_name
+from utils.auth import authenticate_user, hash_password, verify_password, get_role_display_name, create_default_users
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
