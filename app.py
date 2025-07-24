@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 10:03:00
+Last updated: 2025-07-24 10:10:00
 """
 
 import os
@@ -26,7 +26,7 @@ active_sessions = {}
 class ProductionMobileHandler(BaseHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         # Database path - Google Drive or environment variable
-        self.db_path = os.environ.get('DATABASE_PATH', '/Users/andyschwar/Google Drive/orders.db')
+        self.db_path = os.environ.get('DATABASE_PATH', '/Users/andyschwar/Google Drive/My drive/_app/orders.db')
         super().__init__(*args, **kwargs)
     
     def do_GET(self):
@@ -780,9 +780,15 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         
         return True
     
-    def _hash_password(self, password):
-        """Hash password using SHA-256"""
-        return hashlib.sha256(password.encode()).hexdigest()
+    def _verify_password(self, password, password_hash):
+        """Verify a password against its hash (salted SHA-256)"""
+        try:
+            salt, hash_value = password_hash.split('$')
+            hash_obj = hashlib.sha256()
+            hash_obj.update((password + salt).encode('utf-8'))
+            return hash_obj.hexdigest() == hash_value
+        except:
+            return False
     
     def _verify_user(self, username, password):
         """Verify user credentials"""
@@ -799,7 +805,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
             """, (username,))
             user = cursor.fetchone()
             
-            if user and user[2] == self._hash_password(password):
+            if user and self._verify_password(password, user[2]):
                 return {
                     'id': user[0],
                     'username': user[1],
