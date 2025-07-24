@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:21:00
+Last updated: 2025-07-24 09:25:00
 """
 
 import os
@@ -364,9 +364,9 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
         </head>
         <body>
             <div class="container">
-                <h1>Orders Mobile App</h1>
+                <h1>📱 Orders Mobile App</h1>
                 <div class="status">
-                    <h2>Production Ready!</h2>
+                    <h2>✅ Production Ready!</h2>
                     <p><strong>Status:</strong> Live with Google Drive Database</p>
                     <p><strong>Version:</strong> 6.0 - Production Mobile API</p>
                     <p><strong>Timestamp:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
@@ -374,18 +374,18 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 
                 <div class="grid">
                     <a href="/orders" class="square orders">
-                        Orders
+                        📋 Orders
                     </a>
                     <a href="/labels" class="square labels">
-                        Labels
+                        🏷️ Labels
                     </a>
                     <a href="/news" class="square news">
-                        News
+                        📰 News
                     </a>
                 </div>
                 
                 <div class="endpoint-list">
-                    <h3>API Endpoints:</h3>
+                    <h3>🔗 API Endpoints:</h3>
                     <ul>
                         <li><a href="/api/customers" target="_blank">/api/customers</a> - Get all customers</li>
                         <li><a href="/api/orders/1" target="_blank">/api/orders/1</a> - Get orders for customer</li>
