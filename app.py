@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:28:00
+Last updated: 2025-07-24 09:30:00
 """
 
 import os
@@ -317,7 +317,7 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     box-shadow: 0 6px 12px rgba(0,0,0,0.15);
                 }}
                 .orders {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }}
-                .labels {{ background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }}
+                .labels {{ background: linear-gradient(135deg, #56ab2f 0%, #a8e6cf 100%); }}
                 .news {{ background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }}
                 .status {{
                     padding: 15px;
