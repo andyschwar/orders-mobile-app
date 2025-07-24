@@ -2212,6 +2212,37 @@ def create_employee():
 # Include all other existing routes from mobile_api.py
 # (generate_label, add_label, cart management, etc.)
 
+# Test route to check database status
+@app.route('/api/test-db')
+def test_database():
+    """Test database connectivity and table status"""
+    try:
+        db_session = get_session()
+        
+        # Test basic queries
+        user_count = db_session.query(User).count()
+        order_count = db_session.query(Order).count()
+        customer_count = db_session.query(Customer).count()
+        
+        return jsonify({
+            'success': True,
+            'database_status': 'connected',
+            'table_counts': {
+                'users': user_count,
+                'orders': order_count,
+                'customers': customer_count
+            }
+        })
+        
+    except Exception as e:
+        print(f"Database test error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 if __name__ == '__main__':
     try:
         print("Starting enhanced web application...")
