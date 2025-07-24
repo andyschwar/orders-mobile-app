@@ -2,7 +2,7 @@
 """
 Production Mobile API for Orders Management System
 Deployed on Render with Google Drive database
-Last updated: 2025-07-24 09:20:00
+Last updated: 2025-07-24 09:30:00
 """
 
 import os
@@ -26,14 +26,6 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests"""
-        # Set CORS headers
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-        
         try:
             if self.path == '/':
                 self._serve_homepage()
@@ -60,12 +52,16 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                 self._serve_undelivered_items(order_id)
             else:
                 self.send_response(404)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': 'Endpoint not found'}).encode())
                 
         except Exception as e:
             print(f"Error handling request: {e}")
             self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({'error': str(e)}).encode())
     
@@ -256,6 +252,12 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def _serve_homepage(self):
         """Serve the mobile app homepage"""
+        # Set proper headers for HTML
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -313,6 +315,19 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     border-radius: 5px;
                     margin-bottom: 20px;
                 }}
+                .endpoint-list {{
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin-top: 20px;
+                }}
+                .endpoint-list a {{
+                    color: #007bff;
+                    text-decoration: none;
+                }}
+                .endpoint-list a:hover {{
+                    text-decoration: underline;
+                }}
             </style>
         </head>
         <body>
@@ -337,23 +352,29 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
                     </a>
                 </div>
                 
-                <h3>API Endpoints:</h3>
-                <ul>
-                    <li><a href="/api/customers">/api/customers</a> - Get all customers</li>
-                    <li><a href="/api/orders/1">/api/orders/1</a> - Get orders for customer</li>
-                    <li><a href="/api/order-items/1">/api/order-items/1</a> - Get order items</li>
-                    <li><a href="/health">/health</a> - Health check</li>
-                </ul>
+                <div class="endpoint-list">
+                    <h3>🔗 API Endpoints:</h3>
+                    <ul>
+                        <li><a href="/api/customers" target="_blank">/api/customers</a> - Get all customers</li>
+                        <li><a href="/api/orders/1" target="_blank">/api/orders/1</a> - Get orders for customer</li>
+                        <li><a href="/api/order-items/1" target="_blank">/api/order-items/1</a> - Get order items</li>
+                        <li><a href="/health" target="_blank">/health</a> - Health check</li>
+                        <li><a href="/test" target="_blank">/test</a> - Test endpoint</li>
+                    </ul>
+                </div>
             </div>
         </body>
         </html>
         """
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
         self.wfile.write(html.encode())
     
     def _serve_health(self):
         """Serve health check"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
         response = {
             'status': 'healthy',
             'message': 'Production Mobile API is running successfully!',
@@ -365,6 +386,11 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def _serve_test(self):
         """Serve test endpoint"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
         response = {
             'message': 'Production Mobile API v6.0 - Full functionality with database!',
             'timestamp': datetime.now().isoformat(),
@@ -375,6 +401,11 @@ class ProductionMobileHandler(BaseHTTPRequestHandler):
     
     def _serve_customers(self):
         """Serve customers data"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
         conn = self._get_db_connection()
         if not conn:
             self.wfile.write(json.dumps({'error': 'Database connection failed'}).encode())
