@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
 """
-Minimal HTTP server using only Python built-in libraries
+Minimal Mobile API for Render deployment
 """
 
 import os
 import json
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
 
-class SimpleHandler(BaseHTTPRequestHandler):
+class MinimalHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests"""
-        parsed_path = urlparse(self.path)
-        path = parsed_path.path
-        
         # Set CORS headers
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
@@ -23,7 +19,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
         
-        if path == '/':
+        if self.path == '/':
             # Home page
             html = f"""
             <!DOCTYPE html>
@@ -45,11 +41,13 @@ class SimpleHandler(BaseHTTPRequestHandler):
                         <p>Your mobile app is now running on Render.</p>
                         <p><strong>Status:</strong> Live</p>
                         <p><strong>Timestamp:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+                        <p><strong>Version:</strong> 5.1 - Deployment Test</p>
                     </div>
                     <h3>Available Endpoints:</h3>
                     <ul>
                         <li><a href="/health">/health</a> - Health check</li>
-                        <li><a href="/api/customers">/api/customers</a> - Sample customers</li>
+                        <li><a href="/api/customers">/api/customers</a> - Real customers</li>
+                        <li><a href="/test">/test</a> - Test endpoint</li>
                     </ul>
                 </div>
             </body>
@@ -59,21 +57,51 @@ class SimpleHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(html.encode())
             
-        elif path == '/health':
-            # Health check
+        elif self.path == '/health':
             response = {
                 'status': 'healthy',
                 'message': 'Orders Mobile App is running successfully!',
+                'timestamp': datetime.now().isoformat(),
+                'version': '5.0'
+            }
+            self.wfile.write(json.dumps(response).encode())
+            
+        elif self.path == '/test':
+            response = {
+                'message': 'This is Version 5.2 - Real deployment with your customers!',
+                'timestamp': datetime.now().isoformat(),
+                'version': '5.0'
+            }
+            self.wfile.write(json.dumps(response).encode())
+            
+        elif self.path == '/simple':
+            response = {
+                'message': 'SIMPLE TEST - Deployment is working!',
                 'timestamp': datetime.now().isoformat()
             }
             self.wfile.write(json.dumps(response).encode())
             
-        elif path == '/api/customers':
-            # Sample customers
+        elif self.path == '/newtest':
+            response = {
+                'message': 'NEW TEST ENDPOINT - This should work!',
+                'timestamp': datetime.now().isoformat(),
+                'version': '5.0'
+            }
+            self.wfile.write(json.dumps(response).encode())
+            
+        elif self.path == '/api/customers':
+            # Return real customer data
             response = [
-                {'id': 1, 'name': 'Test Customer 1', 'name_index': 'TC1'},
-                {'id': 2, 'name': 'Test Customer 2', 'name_index': 'TC2'},
-                {'id': 3, 'name': 'Test Customer 3', 'name_index': 'TC3'}
+                {'id': 1, 'name': 'CARACAL', 'name_index': 'CAR'},
+                {'id': 2, 'name': 'DAKO', 'name_index': 'DAK'},
+                {'id': 3, 'name': 'INNOFREIGHT', 'name_index': 'INN'},
+                {'id': 4, 'name': 'SLAVONSKI BROD', 'name_index': 'SLA'},
+                {'id': 5, 'name': 'SRBSKO', 'name_index': 'SRB'},
+                {'id': 6, 'name': 'SWIDNICA', 'name_index': 'SWI'},
+                {'id': 7, 'name': 'TREBISOV', 'name_index': 'TRE'},
+                {'id': 8, 'name': 'ZAHREB', 'name_index': 'ZAH'},
+                {'id': 9, 'name': 'POPRAD', 'name_index': 'POP'},
+                {'id': 10, 'name': 'CARACAL SLOVAKIA', 'name_index': 'CAS'}
             ]
             self.wfile.write(json.dumps(response).encode())
             
@@ -94,10 +122,12 @@ class SimpleHandler(BaseHTTPRequestHandler):
 def run_server():
     """Run the HTTP server"""
     port = int(os.environ.get('PORT', 10000))
-    server = HTTPServer(('0.0.0.0', port), SimpleHandler)
+    server = HTTPServer(('0.0.0.0', port), MinimalHandler)
     print(f"Server running on port {port}")
+    print("Version 5.0 - Minimal deployment")
+    print(f"Environment: PORT={os.environ.get('PORT', '10000')}")
+    print(f"Server binding to: 0.0.0.0:{port}")
     server.serve_forever()
 
 if __name__ == '__main__':
-    run_server()
-# Updated Thu Jul 24 08:40:58 CEST 2025
+    run_server() 
