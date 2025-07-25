@@ -41,7 +41,9 @@ CORS(app)
 try:
     print("Initializing database...")
     engine = init_db()
+    print("Database engine created successfully!")
     Session = sessionmaker(bind=engine)
+    print("Session maker created successfully!")
     print("Database initialized successfully!")
 except Exception as e:
     print(f"Error initializing database: {e}")
@@ -686,15 +688,57 @@ def orders_page():
                 <strong>🔍 Auto-filtering...</strong> <span id="filter-message"></span>
             </div>
             
+            <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+                <label style="font-weight: bold; margin-bottom: 10px; display: block;">Filter Mode:</label>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="radio" name="filter-mode" value="order" checked onchange="switchFilterMode()">
+                        <span>By Order</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 5px;">
+                        <input type="radio" name="filter-mode" value="date" onchange="switchFilterMode()">
+                        <span>By Delivery Date</span>
+                    </label>
+                </div>
+            </div>
+            
             <label for="customers">Customer:</label>
-            <select id="customers" onchange="loadOrders()">
+            <select id="customers" onchange="handleCustomerChange()">
                 <option value="">Select customer...</option>
             </select>
             
-            <label for="orders">Order:</label>
-            <select id="orders" onchange="loadOrderItems()" disabled>
-                <option value="">Select order...</option>
-            </select>
+            <div id="order-mode-controls">
+                <label for="orders">Order:</label>
+                <select id="orders" onchange="loadOrderItems()" disabled>
+                    <option value="">Select order...</option>
+                </select>
+            </div>
+            
+            <div id="date-mode-controls" style="display: none;">
+                <label for="delivery-month">Delivery Month:</label>
+                <select id="delivery-month" onchange="loadOrderItems()">
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                </select>
+                
+                <label for="delivery-year">Delivery Year:</label>
+                <select id="delivery-year" onchange="loadOrderItems()">
+                    <option value="2024">2024</option>
+                    <option value="2025" selected>2025</option>
+                    <option value="2026">2026</option>
+                    <option value="2027">2027</option>
+                </select>
+            </div>
             
             <label for="filter">Filter:</label>
             <select id="filter" onchange="loadOrderItems()">
@@ -765,11 +809,51 @@ def orders_page():
                 }
             }
 
+            function switchFilterMode() {
+                const filterMode = document.querySelector('input[name="filter-mode"]:checked').value;
+                const orderControls = document.getElementById('order-mode-controls');
+                const dateControls = document.getElementById('date-mode-controls');
+                const orderItemsDiv = document.getElementById('order-items');
+                
+                // Clear results when switching modes
+                orderItemsDiv.innerHTML = '';
+                
+                if (filterMode === 'order') {
+                    orderControls.style.display = 'block';
+                    dateControls.style.display = 'none';
+                    // Enable order dropdown if customer is selected
+                    const customerId = document.getElementById('customers').value;
+                    document.getElementById('orders').disabled = !customerId;
+                } else {
+                    orderControls.style.display = 'none';
+                    dateControls.style.display = 'block';
+                    document.getElementById('orders').disabled = true;
+                }
+            }
+            
+            function handleCustomerChange() {
+                const filterMode = document.querySelector('input[name="filter-mode"]:checked').value;
+                
+                if (filterMode === 'order') {
+                    loadOrders();
+                } else {
+                    // In date mode, load items directly when customer changes
+                    loadOrderItems();
+                }
+            }
+            
             async function loadOrderItems() {
-                const orderId = document.getElementById('orders').value;
+                const filterMode = document.querySelector('input[name="filter-mode"]:checked').value;
                 const filterValue = document.getElementById('filter').value;
                 const orderItemsDiv = document.getElementById('order-items');
                 
+                if (filterMode === 'date') {
+                    await loadOrderItemsByDate();
+                    return;
+                }
+                
+                // Order mode
+                const orderId = document.getElementById('orders').value;
                 if (!orderId) {
                     orderItemsDiv.innerHTML = '';
                     return;
@@ -835,6 +919,85 @@ def orders_page():
                 } catch (error) {
                     console.error('Error loading order items:', error);
                     orderItemsDiv.innerHTML = '<p>Error loading order items.</p>';
+                }
+            }
+            
+            async function loadOrderItemsByDate() {
+                const customerId = document.getElementById('customers').value;
+                const month = document.getElementById('delivery-month').value;
+                const year = document.getElementById('delivery-year').value;
+                const filterValue = document.getElementById('filter').value;
+                const orderItemsDiv = document.getElementById('order-items');
+                
+                if (!customerId) {
+                    orderItemsDiv.innerHTML = '<p>Please select a customer first.</p>';
+                    return;
+                }
+                
+                orderItemsDiv.innerHTML = '<div class="loading">Loading items for customer in ' + month + '/' + year + '...</div>';
+
+                try {
+                    const response = await fetch(`/api/undelivered-items-by-date/${year}/${month}`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        orderItemsDiv.innerHTML = '<p>Error loading items: ' + (data.error || 'Unknown error') + '</p>';
+                        return;
+                    }
+                    
+                    // Filter items for the selected customer
+                    let customerItems = data.items.filter(item => item.customer_id == customerId);
+                    
+                    // Apply additional filter if needed
+                    if (filterValue === 'undelivered') {
+                        customerItems = customerItems.filter(item => item.undelivered_quantity > 0);
+                    }
+                    
+                    if (customerItems.length === 0) {
+                        orderItemsDiv.innerHTML = '<p>No items found for this customer in ' + month + '/' + year + '.</p>';
+                        return;
+                    }
+                    
+                    let html = '<div style="margin-bottom: 20px; padding: 10px; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196F3;">';
+                    html += '<strong>📊 Summary for Customer in ' + month + '/' + year + ':</strong><br>';
+                    html += 'Total Items: ' + customerItems.length + '<br>';
+                    html += 'Total Undelivered Quantity: ' + customerItems.reduce((sum, item) => sum + item.undelivered_quantity, 0);
+                    html += '</div>';
+                    
+                    customerItems.forEach(item => {
+                        const delivered = item.delivered_quantity;
+                        const total = item.total_quantity;
+                        const undelivered = item.undelivered_quantity;
+                        let statusClass = '';
+                        let statusText = '';
+                        if (delivered >= total) {
+                            statusClass = 'delivered';
+                            statusText = 'Delivered';
+                        } else if (delivered === 0) {
+                            statusClass = 'undelivered';
+                            statusText = `0/${total} delivered`;
+                        } else {
+                            statusClass = 'partial';
+                            statusText = `${delivered}/${total} delivered`;
+                        }
+                        html += `
+                            <div class="order-item ${statusClass}">
+                                <h3>${item.item_name} (${item.customer_code})</h3>
+                                <p><strong>Order:</strong> ${item.order_number}</p>
+                                <p><strong>Product:</strong> ${item.product_name}</p>
+                                <p><strong>Quantity:</strong> ${total}</p>
+                                <p><strong>Delivered:</strong> ${delivered}</p>
+                                <p><strong>Remaining:</strong> ${undelivered}</p>
+                                <p class="status-${statusClass}"><strong>Status:</strong> ${statusText}</p>
+                                ${item.delivery_date ? `<p><strong>Delivery Date:</strong> ${item.delivery_date}</p>` : ''}
+                            </div>
+                        `;
+                    });
+                    
+                    orderItemsDiv.innerHTML = html;
+                } catch (error) {
+                    console.error('Error loading order items by date:', error);
+                    orderItemsDiv.innerHTML = '<p>Error loading order items by date.</p>';
                 }
             }
             
@@ -3366,6 +3529,62 @@ def test_customers_sql():
             'success': False,
             'error': str(e)
         }), 500
+
+@app.route('/api/undelivered-items-by-date/<int:year>/<int:month>', methods=['GET'])
+def get_undelivered_items_by_date(year, month):
+    """Get all undelivered items for a specific delivery month/year across all customers"""
+    try:
+        db_session = get_session()
+        
+        # Create date range for the specified month/year
+        from datetime import date
+        start_date = date(year, month, 1)
+        if month == 12:
+            end_date = date(year + 1, 1, 1)
+        else:
+            end_date = date(year, month + 1, 1)
+        
+        # Query undelivered items with delivery dates in the specified month/year
+        order_items = db_session.query(OrderItem).filter(
+            and_(
+                OrderItem.delivery_date >= start_date,
+                OrderItem.delivery_date < end_date,
+                OrderItem.delivered_quantity < OrderItem.quantity
+            )
+        ).all()
+        
+        items_data = []
+        for item in order_items:
+            undelivered_qty = item.quantity - (item.delivered_quantity or 0)
+            if undelivered_qty > 0:
+                items_data.append({
+                    'id': item.id,
+                    'customer_name': item.order.customer.name,
+                    'customer_index': item.order.customer.name_index,
+                    'order_number': item.order.order_number,
+                    'order_date': item.order.order_date.isoformat(),
+                    'customer_code': item.item.customer_code,
+                    'item_name': item.item.customer_item_name or item.item.product.name,
+                    'product_name': item.item.product.name,
+                    'total_quantity': item.quantity,
+                    'delivered_quantity': item.delivered_quantity or 0,
+                    'undelivered_quantity': undelivered_qty,
+                    'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None,
+                    'order_id': item.order.id,
+                    'customer_id': item.order.customer_id
+                })
+        
+        return jsonify({
+            'success': True,
+            'year': year,
+            'month': month,
+            'items': items_data,
+            'total_items': len(items_data),
+            'total_undelivered': sum(item['undelivered_quantity'] for item in items_data)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     try:
