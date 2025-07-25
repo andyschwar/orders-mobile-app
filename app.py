@@ -97,7 +97,11 @@ class FakeOrderItem:
             'order_number': order_data['order_number'],
             'customer': type('FakeCustomer', (), {
                 'name': order_data['customer_name'],
-                'name_index': order_data['customer_name_index']
+                'name_index': order_data['customer_name_index'],
+                'barcodes_enabled': True,  # Enable barcodes by default
+                'item_barcode_prefix': 'P',  # Default prefix for item barcodes
+                'order_barcode_prefix': 'N',  # Default prefix for order barcodes
+                'quantity_barcode_prefix': 'U'  # Default prefix for quantity barcodes
             })()
         })()
         
@@ -2106,11 +2110,23 @@ def generate_label():
         }]
         
         try:
+            print(f"🔍 Generating single label with {len(delivery_items)} items")
+            print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
+            
             pdf_path = label_generator.generate_labels(delivery_items)
+            
+            print(f"🔍 PDF generated at: {pdf_path}")
             
             # Verify the file was created
             if not os.path.exists(pdf_path):
                 raise Exception("PDF file was not created")
+            
+            # Check file size
+            file_size = os.path.getsize(pdf_path)
+            print(f"🔍 PDF file size: {file_size} bytes")
+            
+            if file_size == 0:
+                raise Exception("PDF file is empty (0 bytes)")
             
             # Get filename from the generated PDF path
             filename = os.path.basename(pdf_path)
@@ -2255,11 +2271,23 @@ def generate_cart_labels():
             })
         
         try:
+            print(f"🔍 Generating cart labels with {len(delivery_items)} items")
+            print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
+            
             pdf_path = label_generator.generate_labels(delivery_items)
+            
+            print(f"🔍 PDF generated at: {pdf_path}")
             
             # Verify the file was created
             if not os.path.exists(pdf_path):
                 raise Exception("PDF file was not created")
+            
+            # Check file size
+            file_size = os.path.getsize(pdf_path)
+            print(f"🔍 PDF file size: {file_size} bytes")
+            
+            if file_size == 0:
+                raise Exception("PDF file is empty (0 bytes)")
             
             # Get filename from the generated PDF path
             filename = os.path.basename(pdf_path)
