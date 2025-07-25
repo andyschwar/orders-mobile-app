@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, DateTime, Boolean, Enum, event
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, DateTime, Boolean, Enum, event, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -13,7 +13,6 @@ Base = declarative_base()
 
 class Customer(Base):
     __tablename__ = 'customers'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     name_index = Column(String(20))  # Index for sorting/reference
@@ -46,7 +45,6 @@ class Customer(Base):
 
 class Product(Base):
     __tablename__ = 'products'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
@@ -82,7 +80,6 @@ class Product(Base):
 
 class Item(Base):
     __tablename__ = 'items'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
@@ -100,7 +97,6 @@ class Item(Base):
 
 class Order(Base):
     __tablename__ = 'orders'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
@@ -114,7 +110,6 @@ class Order(Base):
 
 class OrderItem(Base):
     __tablename__ = 'order_items'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey('orders.id'))
@@ -341,7 +336,6 @@ class UserRole(enum.Enum):
 
 class User(Base):
     __tablename__ = 'users'
-    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
@@ -497,8 +491,13 @@ def init_db():
             logger.debug("Testing Supabase connection...")
             # Test the connection
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             logger.debug("Supabase connection successful")
+            
+            # For Supabase, we need to set the search_path to public
+            with engine.connect() as conn:
+                conn.execute(text("SET search_path TO public"))
+                conn.commit()
             
         else:
             # Use local SQLite (for development)
