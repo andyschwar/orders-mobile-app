@@ -2105,16 +2105,36 @@ def generate_label():
             "quantity": fake_order_item.quantity
         }]
         
-        pdf_path = label_generator.generate_labels(delivery_items)
-        
-        # Get filename from the generated PDF path
-        filename = os.path.basename(pdf_path)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Label generated successfully',
-            'filename': filename
-        })
+        try:
+            pdf_path = label_generator.generate_labels(delivery_items)
+            
+            # Verify the file was created
+            if not os.path.exists(pdf_path):
+                raise Exception("PDF file was not created")
+            
+            # Get filename from the generated PDF path
+            filename = os.path.basename(pdf_path)
+            
+            # Copy file to a more accessible location for download
+            import shutil
+            download_dir = os.path.join(os.getcwd(), 'downloads')
+            os.makedirs(download_dir, exist_ok=True)
+            download_path = os.path.join(download_dir, filename)
+            shutil.copy2(pdf_path, download_path)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Label generated successfully',
+                'filename': filename
+            })
+        except Exception as e:
+            # Clean up temporary directory
+            import shutil
+            try:
+                shutil.rmtree(export_dir)
+            except:
+                pass
+            raise e
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2234,13 +2254,39 @@ def generate_cart_labels():
                 "quantity": item.quantity
             })
         
-        pdf_path = label_generator.generate_labels(delivery_items)
-        
-        # Clear cart after generation
-        label_cart.clear()
-        
-        # Return the PDF file
-        return send_file(pdf_path, as_attachment=True, download_name=f"labels_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+        try:
+            pdf_path = label_generator.generate_labels(delivery_items)
+            
+            # Verify the file was created
+            if not os.path.exists(pdf_path):
+                raise Exception("PDF file was not created")
+            
+            # Get filename from the generated PDF path
+            filename = os.path.basename(pdf_path)
+            
+            # Copy file to a more accessible location for download
+            import shutil
+            download_dir = os.path.join(os.getcwd(), 'downloads')
+            os.makedirs(download_dir, exist_ok=True)
+            download_path = os.path.join(download_dir, filename)
+            shutil.copy2(pdf_path, download_path)
+            
+            # Clear cart after generation
+            label_cart.clear()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Generated {len(delivery_items)} labels',
+                'filename': filename
+            })
+        except Exception as e:
+            # Clean up temporary directory
+            import shutil
+            try:
+                shutil.rmtree(export_dir)
+            except:
+                pass
+            raise e
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2250,10 +2296,9 @@ def generate_cart_labels():
 def download_file(filename):
     """Download a generated file"""
     try:
-        # For now, we'll use a temporary directory
-        # In production, you might want to store files in a proper location
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, filename)
+        # Use the downloads directory
+        download_dir = os.path.join(os.getcwd(), 'downloads')
+        file_path = os.path.join(download_dir, filename)
         
         if os.path.exists(file_path):
             return send_file(file_path, as_attachment=True, download_name=filename)
