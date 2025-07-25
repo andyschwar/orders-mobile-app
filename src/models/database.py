@@ -13,6 +13,7 @@ Base = declarative_base()
 
 class Customer(Base):
     __tablename__ = 'customers'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     name_index = Column(String(20))  # Index for sorting/reference
@@ -45,6 +46,7 @@ class Customer(Base):
 
 class Product(Base):
     __tablename__ = 'products'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False, unique=True)
@@ -80,6 +82,7 @@ class Product(Base):
 
 class Item(Base):
     __tablename__ = 'items'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
@@ -97,6 +100,7 @@ class Item(Base):
 
 class Order(Base):
     __tablename__ = 'orders'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
@@ -110,6 +114,7 @@ class Order(Base):
 
 class OrderItem(Base):
     __tablename__ = 'order_items'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey('orders.id'))
@@ -336,6 +341,7 @@ class UserRole(enum.Enum):
 
 class User(Base):
     __tablename__ = 'users'
+    __table_args__ = {'schema': 'public'}
     
     id = Column(Integer, primary_key=True)
     username = Column(String(50), unique=True, nullable=False)
@@ -429,6 +435,14 @@ class ComponentStock(Base):
 
 def get_database_path():
     """Get database path from config or use default"""
+    # For Render deployment, use a local path
+    if os.environ.get('RENDER'):
+        # Use local directory for Render
+        db_dir = os.path.join(os.getcwd(), 'data')
+        os.makedirs(db_dir, exist_ok=True)
+        return os.path.join(db_dir, 'orders.db')
+    
+    # For local development, use the original path
     config_file = os.path.expanduser('~/Library/Application Support/Orders/config.json')
     
     # Try to read config file
@@ -472,19 +486,35 @@ def set_database_path(path):
 def init_db():
     """Initialize the database"""
     try:
-        db_path = get_database_path()
+        # Check if we should use Supabase
+        supabase_url = os.environ.get('SUPABASE_URL')
         
-        # Ensure directory exists
-        db_dir = os.path.dirname(db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-        
-        logger.debug(f"Creating database engine with path: {db_path}")
-        engine = create_engine(f'sqlite:///{db_path}')
-        
-        logger.debug("Creating database tables...")
-        Base.metadata.create_all(engine)
-        logger.debug("Database tables created successfully")
+        if supabase_url:
+            # Use Supabase PostgreSQL
+            logger.debug(f"Connecting to Supabase PostgreSQL: {supabase_url}")
+            engine = create_engine(supabase_url)
+            
+            logger.debug("Testing Supabase connection...")
+            # Test the connection
+            with engine.connect() as conn:
+                conn.execute("SELECT 1")
+            logger.debug("Supabase connection successful")
+            
+        else:
+            # Use local SQLite (for development)
+            db_path = get_database_path()
+            
+            # Ensure directory exists
+            db_dir = os.path.dirname(db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
+            
+            logger.debug(f"Creating SQLite database engine with path: {db_path}")
+            engine = create_engine(f'sqlite:///{db_path}')
+            
+            logger.debug("Creating database tables...")
+            Base.metadata.create_all(engine)
+            logger.debug("Database tables created successfully")
         
         return engine
     except Exception as e:

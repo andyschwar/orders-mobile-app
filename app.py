@@ -3171,12 +3171,12 @@ def test_customers_sql():
         
         # Try raw SQL query
         from sqlalchemy import text
-        result = db_session.execute(text("SELECT COUNT(*) FROM customers"))
+        result = db_session.execute(text("SELECT COUNT(*) FROM public.customers"))
         count = result.scalar()
         print(f"📊 Raw SQL customers count: {count}")
         
         # Try to get a sample customer with raw SQL
-        result = db_session.execute(text("SELECT id, name, name_index FROM customers LIMIT 1"))
+        result = db_session.execute(text("SELECT id, name, name_index FROM public.customers LIMIT 1"))
         sample = result.fetchone()
         
         if sample:
