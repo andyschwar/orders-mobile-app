@@ -2085,7 +2085,8 @@ def generate_label():
         )
         
         # Generate label
-        label_generator = LabelGenerator()
+        export_dir = tempfile.mkdtemp()
+        label_generator = LabelGenerator(export_dir)
         pdf_path = label_generator.generate_label(fake_order_item)
         
         # Return the PDF file
@@ -2198,7 +2199,8 @@ def generate_cart_labels():
             return jsonify({'error': 'Cart is empty'}), 400
         
         # Generate labels for all items in cart
-        label_generator = LabelGenerator()
+        export_dir = tempfile.mkdtemp()
+        label_generator = LabelGenerator(export_dir)
         pdf_path = label_generator.generate_multiple_labels(label_cart)
         
         # Clear cart after generation
