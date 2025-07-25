@@ -2062,8 +2062,19 @@ def generate_label():
         data = request.json
         db_session = get_session()
         
-        # Get order item
-        order_item = db_session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
+        # Get the order and item based on the provided data
+        order = db_session.query(Order).filter(Order.id == data['order_id']).first()
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        
+        # Find the order item by customer_code
+        order_item = db_session.query(OrderItem).join(Item).filter(
+            and_(
+                OrderItem.order_id == data['order_id'],
+                Item.customer_code == data['item_code']
+            )
+        ).first()
+        
         if not order_item:
             return jsonify({'error': 'Order item not found'}), 404
         
@@ -2096,8 +2107,14 @@ def generate_label():
         
         pdf_path = label_generator.generate_labels(delivery_items)
         
-        # Return the PDF file
-        return send_file(pdf_path, as_attachment=True, download_name=f"label_{order_item.order.order_number}_{order_item.item.customer_code}.pdf")
+        # Get filename from the generated PDF path
+        filename = os.path.basename(pdf_path)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Label generated successfully',
+            'filename': filename
+        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2225,6 +2242,23 @@ def generate_cart_labels():
         # Return the PDF file
         return send_file(pdf_path, as_attachment=True, download_name=f"labels_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download/<filename>')
+@login_required
+def download_file(filename):
+    """Download a generated file"""
+    try:
+        # For now, we'll use a temporary directory
+        # In production, you might want to store files in a proper location
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, filename)
+        
+        if os.path.exists(file_path):
+            return send_file(file_path, as_attachment=True, download_name=filename)
+        else:
+            return jsonify({'error': 'File not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
