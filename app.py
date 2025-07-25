@@ -12,7 +12,7 @@ from flask import Flask, jsonify, request, send_file, render_template_string, se
 from flask_cors import CORS
 import tempfile
 import traceback
-from sqlalchemy import create_engine, func, and_, or_
+from sqlalchemy import create_engine, func, and_, or_, text
 from sqlalchemy.orm import sessionmaker
 from functools import wraps
 
@@ -3170,12 +3170,13 @@ def test_customers_sql():
         db_session = get_session()
         
         # Try raw SQL query
-        result = db_session.execute("SELECT COUNT(*) FROM customers")
+        from sqlalchemy import text
+        result = db_session.execute(text("SELECT COUNT(*) FROM customers"))
         count = result.scalar()
         print(f"📊 Raw SQL customers count: {count}")
         
         # Try to get a sample customer with raw SQL
-        result = db_session.execute("SELECT id, name, name_index FROM customers LIMIT 1")
+        result = db_session.execute(text("SELECT id, name, name_index FROM customers LIMIT 1"))
         sample = result.fetchone()
         
         if sample:
