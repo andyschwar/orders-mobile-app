@@ -19,6 +19,10 @@ from functools import wraps
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+# Set Supabase URL if not already set
+if not os.environ.get('SUPABASE_URL'):
+    os.environ['SUPABASE_URL'] = "postgresql://postgres:KNakli+AVZ*2024@db.vcmnfykughxghaqnqves.supabase.co:5432/postgres"
+
 from models.database import (
     Order, Customer, OrderItem, Item, Product, Delivery, DeliveryTerm,
     ProductionPlan, Employee, Component, ProductComponent, User, UserRole,
