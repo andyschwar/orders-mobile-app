@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, DateTime, Boolean, Enum, event, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, DateTime, Boolean, Enum, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -429,14 +429,11 @@ class ComponentStock(Base):
 
 def get_database_path():
     """Get database path from config or use default"""
-    # For Render deployment, use a local path
-    if os.environ.get('RENDER'):
-        # Use local directory for Render
-        db_dir = os.path.join(os.getcwd(), 'data')
-        os.makedirs(db_dir, exist_ok=True)
-        return os.path.join(db_dir, 'orders.db')
+    # Check for environment variable first (for cloud deployments)
+    env_db_path = os.environ.get('DATABASE_PATH')
+    if env_db_path:
+        return env_db_path
     
-    # For local development, use the original path
     config_file = os.path.expanduser('~/Library/Application Support/Orders/config.json')
     
     # Try to read config file
@@ -480,38 +477,41 @@ def set_database_path(path):
 def init_db():
     """Initialize the database"""
     try:
-        # Check if we should use Supabase
+        # Check if Supabase URL is set
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
             # Use Supabase PostgreSQL
-            logger.debug(f"Connecting to Supabase PostgreSQL: {supabase_url}")
+            logger.debug(f"Using Supabase database: {supabase_url}")
             engine = create_engine(supabase_url)
             
-
+            logger.debug("Creating database tables...")
+            Base.metadata.create_all(engine)
+            logger.debug("Database tables created successfully")
             
-            # For Supabase, we need to set the search_path to public
-            with engine.connect() as conn:
-                conn.execute(text("SET search_path TO public"))
-                conn.commit()
-            
+            return engine
         else:
-            # Use local SQLite (for development)
+            # Use local SQLite as fallback
             db_path = get_database_path()
             
-            # Ensure directory exists
+            # Ensure directory exists (only if it's not a simple filename)
             db_dir = os.path.dirname(db_path)
-            if db_dir:
-                os.makedirs(db_dir, exist_ok=True)
+            if db_dir and not db_path.startswith('/tmp/'):
+                try:
+                    os.makedirs(db_dir, exist_ok=True)
+                except Exception as e:
+                    logger.warning(f"Could not create directory {db_dir}: {e}")
+                    # Fallback to /tmp if we can't create the directory
+                    db_path = '/tmp/orders.db'
             
-            logger.debug(f"Creating SQLite database engine with path: {db_path}")
+            logger.debug(f"Creating database engine with path: {db_path}")
             engine = create_engine(f'sqlite:///{db_path}')
             
             logger.debug("Creating database tables...")
             Base.metadata.create_all(engine)
             logger.debug("Database tables created successfully")
-        
-        return engine
+            
+            return engine
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise 
