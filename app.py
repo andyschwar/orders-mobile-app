@@ -2198,8 +2198,15 @@ def generate_cart_labels():
 def get_customers():
     """Get all customers"""
     try:
+        print("🔍 Fetching customers from database...")
         db_session = get_session()
+        
+        # Try to get total count first
+        total_count = db_session.query(Customer).count()
+        print(f"📊 Total customers in database: {total_count}")
+        
         customers = db_session.query(Customer).order_by(Customer.name_index).all()
+        print(f"📋 Retrieved {len(customers)} customers")
         
         customers_data = []
         for customer in customers:
@@ -2211,9 +2218,13 @@ def get_customers():
                 'country': customer.country
             })
         
+        print(f"✅ Returning {len(customers_data)} customers")
         return jsonify(customers_data)
         
     except Exception as e:
+        print(f"❌ Error in get_customers: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/orders/<int:customer_id>', methods=['GET'])
