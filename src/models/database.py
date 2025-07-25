@@ -488,11 +488,7 @@ def init_db():
             logger.debug(f"Connecting to Supabase PostgreSQL: {supabase_url}")
             engine = create_engine(supabase_url)
             
-            logger.debug("Testing Supabase connection...")
-            # Test the connection
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            logger.debug("Supabase connection successful")
+
             
             # For Supabase, we need to set the search_path to public
             with engine.connect() as conn:
