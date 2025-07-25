@@ -2087,7 +2087,14 @@ def generate_label():
         # Generate label
         export_dir = tempfile.mkdtemp()
         label_generator = LabelGenerator(export_dir)
-        pdf_path = label_generator.generate_label(fake_order_item)
+        
+        # Format the order item for the label generator
+        delivery_items = [{
+            "order_item": fake_order_item,
+            "quantity": fake_order_item.quantity
+        }]
+        
+        pdf_path = label_generator.generate_labels(delivery_items)
         
         # Return the PDF file
         return send_file(pdf_path, as_attachment=True, download_name=f"label_{order_item.order.order_number}_{order_item.item.customer_code}.pdf")
@@ -2201,7 +2208,16 @@ def generate_cart_labels():
         # Generate labels for all items in cart
         export_dir = tempfile.mkdtemp()
         label_generator = LabelGenerator(export_dir)
-        pdf_path = label_generator.generate_multiple_labels(label_cart)
+        
+        # Format cart items for the label generator
+        delivery_items = []
+        for item in label_cart:
+            delivery_items.append({
+                "order_item": item,
+                "quantity": item.quantity
+            })
+        
+        pdf_path = label_generator.generate_labels(delivery_items)
         
         # Clear cart after generation
         label_cart.clear()
