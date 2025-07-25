@@ -3118,12 +3118,25 @@ def get_news():
 def test_database():
     """Test database connectivity and table status"""
     try:
+        print("🔍 Testing database connection...")
         db_session = get_session()
         
         # Test basic queries
         user_count = db_session.query(User).count()
+        print(f"📊 Users count: {user_count}")
+        
         order_count = db_session.query(Order).count()
+        print(f"📊 Orders count: {order_count}")
+        
         customer_count = db_session.query(Customer).count()
+        print(f"📊 Customers count: {customer_count}")
+        
+        # Try to get a sample customer to test the model
+        sample_customer = db_session.query(Customer).first()
+        if sample_customer:
+            print(f"✅ Sample customer found: {sample_customer.name} (ID: {sample_customer.id})")
+        else:
+            print("❌ No customers found in database")
         
         return jsonify({
             'success': True,
@@ -3132,11 +3145,60 @@ def test_database():
                 'users': user_count,
                 'orders': order_count,
                 'customers': customer_count
-            }
+            },
+            'sample_customer': {
+                'id': sample_customer.id,
+                'name': sample_customer.name,
+                'name_index': sample_customer.name_index
+            } if sample_customer else None
         })
         
     except Exception as e:
-        print(f"Database test error: {e}")
+        print(f"❌ Database test error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/test-customers-sql')
+def test_customers_sql():
+    """Test customers table with raw SQL"""
+    try:
+        print("🔍 Testing customers table with raw SQL...")
+        db_session = get_session()
+        
+        # Try raw SQL query
+        result = db_session.execute("SELECT COUNT(*) FROM customers")
+        count = result.scalar()
+        print(f"📊 Raw SQL customers count: {count}")
+        
+        # Try to get a sample customer with raw SQL
+        result = db_session.execute("SELECT id, name, name_index FROM customers LIMIT 1")
+        sample = result.fetchone()
+        
+        if sample:
+            print(f"✅ Raw SQL sample customer: {sample}")
+            return jsonify({
+                'success': True,
+                'raw_sql_count': count,
+                'sample_customer': {
+                    'id': sample[0],
+                    'name': sample[1],
+                    'name_index': sample[2]
+                }
+            })
+        else:
+            print("❌ No customers found with raw SQL")
+            return jsonify({
+                'success': True,
+                'raw_sql_count': count,
+                'sample_customer': None
+            })
+        
+    except Exception as e:
+        print(f"❌ Raw SQL test error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
