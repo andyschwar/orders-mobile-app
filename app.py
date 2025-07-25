@@ -716,7 +716,7 @@ def orders_page():
                     customers.forEach(customer => {
                         const option = document.createElement('option');
                         option.value = customer.id;
-                        option.textContent = customer.name;
+                        option.textContent = customer.display_name || customer.name_index || customer.name;
                         select.appendChild(option);
                     });
                 } catch (error) {
@@ -1357,7 +1357,7 @@ def labels_page():
                     customers.forEach(customer => {
                         const option = document.createElement('option');
                         option.value = customer.id;
-                        option.textContent = customer.name;
+                        option.textContent = customer.display_name || customer.name_index || customer.name;
                         select.appendChild(option);
                     });
                     console.log('Customers loaded successfully. Total customers:', customers.length);
@@ -2214,6 +2214,7 @@ def get_customers():
                 'id': customer.id,
                 'name': customer.name,
                 'name_index': customer.name_index,
+                'display_name': f"{customer.name_index} ({customer.name})" if customer.name_index else customer.name,
                 'city': customer.city,
                 'country': customer.country
             })
