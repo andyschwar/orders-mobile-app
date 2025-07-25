@@ -390,7 +390,7 @@ def delete_user(user_id):
 @app.route('/')
 @login_required
 def index():
-    """Main dashboard page"""
+    """Mobile app home screen with 3 tiles"""
     try:
         # Get user info for display
         db_session = get_session()
@@ -399,42 +399,70 @@ def index():
         if not user:
             return redirect(url_for('login'))
         
-        # Get the user's role as UserRole enum
-        user_role = user.role
-        
         html = """
         <!DOCTYPE html>
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Orders Management Dashboard</title>
+            <title>Orders Mobile</title>
             <style>
                 body { 
                     font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
                     margin: 0; 
                     padding: 20px;
-                    background: #f8f9fa;
+                    background: #f5f5f5;
                 }
                 .container { 
-                    max-width: 1200px; 
+                    max-width: 600px; 
                     margin: 0 auto; 
                     background: white; 
-                    padding: 30px; 
-                    border-radius: 12px; 
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 }
-                .header {
+                h1 { 
+                    color: #333; 
+                    text-align: center; 
+                    margin-bottom: 30px;
+                }
+                .grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 15px;
+                    margin-top: 30px;
+                }
+                .square {
+                    aspect-ratio: 1;
+                    border-radius: 15px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-size: 18px;
+                    font-weight: bold;
+                    text-align: center;
+                    text-decoration: none;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+                    transition: transform 0.2s, box-shadow 0.2s;
+                }
+                .square:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+                }
+                .square:active {
+                    transform: translateY(0);
+                }
+                .labels { background: linear-gradient(135deg, #007AFF, #0056CC); }
+                .orders { background: linear-gradient(135deg, #34C759, #28A745); }
+                .news { background: linear-gradient(135deg, #FF6B35, #E55A2B); }
+                .user-info {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    margin-bottom: 30px;
-                    padding-bottom: 20px;
-                    border-bottom: 1px solid #eee;
-                }
-                .user-info {
-                    display: flex;
-                    align-items: center;
-                    gap: 15px;
+                    margin-bottom: 20px;
+                    padding: 10px;
+                    background: #f8f9fa;
+                    border-radius: 8px;
                 }
                 .user-role {
                     background: #007AFF;
@@ -445,155 +473,45 @@ def index():
                     font-weight: bold;
                 }
                 .logout-btn {
-                    padding: 8px 16px;
+                    padding: 6px 12px;
                     background: #dc3545;
                     color: white;
                     text-decoration: none;
                     border-radius: 6px;
-                    font-size: 14px;
-                }
-                .grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 30px;
-                }
-                .card {
-                    background: white;
-                    border: 1px solid #e9ecef;
-                    border-radius: 8px;
-                    padding: 20px;
-                    text-decoration: none;
-                    color: inherit;
-                    transition: all 0.2s;
-                }
-                .card:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                }
-                .card h3 {
-                    margin: 0 0 10px 0;
-                    color: #2c3e50;
-                }
-                .card p {
-                    margin: 0;
-                    color: #6c757d;
-                    font-size: 14px;
-                }
-                .metrics {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 15px;
-                    margin-bottom: 30px;
-                }
-                .metric {
-                    background: white;
-                    border: 1px solid #e9ecef;
-                    border-radius: 8px;
-                    padding: 20px;
-                    text-align: center;
-                }
-                .metric-value {
-                    font-size: 2em;
-                    font-weight: bold;
-                    color: #007AFF;
-                    margin-bottom: 5px;
-                }
-                .metric-label {
-                    color: #6c757d;
-                    font-size: 14px;
+                    font-size: 12px;
                 }
             </style>
         </head>
         <body>
             <div class="container">
-                <div class="header">
+                <div class="user-info">
                     <div>
-                        <h1>📊 Orders Management Dashboard</h1>
-                        <div class="user-info">
-                            <span>Welcome, <strong>{{ session.get('username', 'User') }}</strong></span>
-                            <span class="user-role">{{ get_role_display_name(user_role) }}</span>
-                        </div>
+                        <span>Welcome, <strong>{{ session.get('username', 'User') }}</strong></span>
+                        <span class="user-role">{{ get_role_display_name(user_role) }}</span>
                     </div>
                     <a href="/logout" class="logout-btn">Logout</a>
                 </div>
                 
-                <div class="metrics" id="metrics">
-                    <div class="metric">
-                        <div class="metric-value" id="total-orders">-</div>
-                        <div class="metric-label">Total Orders</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="active-customers">-</div>
-                        <div class="metric-label">Active Customers</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="pending-deliveries">-</div>
-                        <div class="metric-label">Pending Deliveries</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="active-employees">-</div>
-                        <div class="metric-label">Active Employees</div>
-                    </div>
-                </div>
+                <h1>💎 Orders Mobile</h1>
                 
                 <div class="grid">
-                    <a href="/orders" class="card">
-                        <h3>📋 Orders Management</h3>
-                        <p>View and manage customer orders, track deliveries, and monitor order status.</p>
+                    <a href="/orders" class="square orders">
+                        📋<br>Orders
                     </a>
-                    
-                    <a href="/production" class="card">
-                        <h3>🏭 Production Planning</h3>
-                        <p>Create and manage production plans, track manufacturing schedules.</p>
+                    <a href="/labels" class="square labels">
+                        🏷️<br>Labels
                     </a>
-                    
-                    <a href="/employees" class="card">
-                        <h3>👥 Employee Management</h3>
-                        <p>Manage employee information, track employment details and contracts.</p>
+                    <a href="/news" class="square news">
+                        📰<br>News
                     </a>
-                    
-                    <a href="/labels" class="card">
-                        <h3>🏷️ Label Generation</h3>
-                        <p>Generate shipping labels and barcodes for order items.</p>
-                    </a>
-                    
-                    <a href="/mobile" class="card">
-                        <h3>📱 Mobile Interface</h3>
-                        <p>Mobile-optimized interface for on-the-go order management.</p>
-                    </a>
-                    
-                    {% if user_role.value == 'admin' %}
-                    <a href="/users" class="card">
-                        <h3>👤 User Management</h3>
-                        <p>Manage user accounts, roles, and permissions.</p>
-                    </a>
-                    {% endif %}
                 </div>
             </div>
-            
-            <script>
-                // Load dashboard metrics
-                fetch('/api/dashboard-metrics')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            document.getElementById('total-orders').textContent = data.metrics.total_orders;
-                            document.getElementById('active-customers').textContent = data.metrics.active_customers;
-                            document.getElementById('pending-deliveries').textContent = data.metrics.pending_deliveries;
-                            document.getElementById('active-employees').textContent = data.metrics.active_employees;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error loading metrics:', error);
-                    });
-            </script>
         </body>
         </html>
         """
-        return render_template_string(html, session=session, get_role_display_name=get_role_display_name, user_role=user_role)
+        return render_template_string(html, session=session, get_role_display_name=get_role_display_name, user_role=user.role)
     except Exception as e:
-        print(f"Error in dashboard route: {e}")
+        print(f"Error in mobile home route: {e}")
         import traceback
         traceback.print_exc()
         return f"Internal Server Error: {str(e)}", 500
@@ -646,249 +564,527 @@ def dashboard_metrics():
 @app.route('/orders')
 @login_required
 def orders_page():
-    """Orders management page"""
+    """Mobile orders page with filtering support"""
+    from flask import request
+    
+    # Get filter parameters from URL
+    filter_type = request.args.get('filter', '')
+    filter_value = request.args.get('value', '')
+    
     html = """
     <!DOCTYPE html>
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Orders Management</title>
+        <title>Order Items - Orders Mobile</title>
         <style>
             body { 
                 font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
                 margin: 0; 
                 padding: 20px;
-                background: #f8f9fa;
+                background: #f5f5f5;
             }
             .container { 
-                max-width: 1200px; 
+                max-width: 600px; 
                 margin: 0 auto; 
                 background: white; 
-                padding: 30px; 
-                border-radius: 12px; 
-                box-shadow: 0 4px 6px rgba(0,0,0,0.07);
+                padding: 20px; 
+                border-radius: 10px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             }
-            .header {
-                display: flex;
-                align-items: center;
-                gap: 20px;
+            h1 { 
+                color: #333; 
+                text-align: center; 
                 margin-bottom: 30px;
             }
             .back-btn {
+                display: inline-block;
                 padding: 10px 20px;
-                background: #6c757d;
+                background: #6C757D;
                 color: white;
                 text-decoration: none;
                 border-radius: 8px;
+                margin-bottom: 20px;
                 font-weight: bold;
             }
-            h1 { 
-                margin: 0;
-                color: #2c3e50;
+            .back-btn:hover {
+                background: #5A6268;
             }
-            .filters {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
-                margin-bottom: 30px;
-            }
-            select, input { 
+            select { 
                 width: 100%; 
                 padding: 12px; 
+                margin: 10px 0; 
                 border: 1px solid #ddd; 
-                border-radius: 8px; 
+                border-radius: 5px; 
                 font-size: 16px;
             }
-            .orders-grid {
-                display: grid;
-                gap: 15px;
+            select:disabled { 
+                background: #f5f5f5; 
+                color: #999;
             }
-            .order-card {
-                background: #f8f9fa;
+            .order-item {
+                background: white;
+                padding: 15px;
+                margin: 10px 0;
                 border-radius: 8px;
-                padding: 20px;
-                border-left: 4px solid #667eea;
+                border-left: 4px solid #28A745;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             }
-            .order-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 15px;
+            .order-item.delivered {
+                border-left-color: #28A745;
             }
-            .order-number {
+            .order-item.partial {
+                border-left-color: #FD7E14;
+            }
+            .order-item.undelivered {
+                border-left-color: #DC3545;
+            }
+            
+            .order-item h3 {
+                margin: 0 0 10px 0;
+                color: #333;
+            }
+            
+            .order-item p {
+                margin: 5px 0;
+                color: #666;
+            }
+            
+            .status-delivered {
+                color: #28A745;
                 font-weight: bold;
-                font-size: 1.1rem;
-                color: #2c3e50;
             }
-            .order-date {
-                color: #6c757d;
-                font-size: 0.9rem;
+            
+            .status-undelivered {
+                color: #DC3545;
+                font-weight: bold;
             }
-            .customer-name {
-                font-weight: 600;
-                color: #495057;
-                margin-bottom: 10px;
-            }
-            .items-list {
-                margin-top: 15px;
-            }
-            .item-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 8px 0;
-                border-bottom: 1px solid #e9ecef;
-            }
-            .item-row:last-child {
-                border-bottom: none;
-            }
+            
             .loading {
                 text-align: center;
-                padding: 40px;
-                color: #6c757d;
+                color: #666;
+                font-style: italic;
+                padding: 20px;
             }
         </style>
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                <a href="/" class="back-btn">← Back</a>
-                <h1>📋 Orders Management</h1>
+            <a href="/" class="back-btn">← Back to Home</a>
+            <h1>📋 Order Items</h1>
+            <div id="filter-status" style="display: none; background: #e3f2fd; padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #2196F3;">
+                <strong>🔍 Auto-filtering...</strong> <span id="filter-message"></span>
             </div>
             
-            <div class="filters">
-                <select id="customer-filter">
-                    <option value="">All Customers</option>
-                </select>
-                <input type="date" id="date-filter" placeholder="Filter by date">
-                <select id="status-filter">
-                    <option value="">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="partial">Partially Delivered</option>
-                    <option value="complete">Complete</option>
-                </select>
-            </div>
+            <label for="customers">Customer:</label>
+            <select id="customers" onchange="loadOrders()">
+                <option value="">Select customer...</option>
+            </select>
             
-            <div id="orders-container">
-                <div class="loading">Loading orders...</div>
-            </div>
+            <label for="orders">Order:</label>
+            <select id="orders" onchange="loadOrderItems()" disabled>
+                <option value="">Select order...</option>
+            </select>
+            
+            <label for="filter">Filter:</label>
+            <select id="filter" onchange="loadOrderItems()">
+                <option value="all">All Items</option>
+                <option value="undelivered">Not Yet Delivered</option>
+            </select>
+            
+            <div id="order-items"></div>
         </div>
-        
+
         <script>
-            let allOrders = [];
-            
+            // Load customers on page load
+            window.onload = function() {
+                loadCustomers();
+            };
+
             async function loadCustomers() {
                 try {
                     const response = await fetch('/api/customers');
-                    const data = await response.json();
+                    const customers = await response.json();
                     
-                    if (data.success) {
-                        const select = document.getElementById('customer-filter');
-                        data.customers.forEach(customer => {
-                            const option = document.createElement('option');
-                            option.value = customer.id;
-                            option.textContent = `${customer.name_index} - ${customer.name}`;
-                            select.appendChild(option);
-                        });
-                    }
+                    const select = document.getElementById('customers');
+                    select.innerHTML = '<option value="">Select customer...</option>';
+                    
+                    customers.forEach(customer => {
+                        const option = document.createElement('option');
+                        option.value = customer.id;
+                        option.textContent = customer.name;
+                        select.appendChild(option);
+                    });
                 } catch (error) {
                     console.error('Error loading customers:', error);
                 }
             }
-            
+
             async function loadOrders() {
-                try {
-                    const response = await fetch('/api/all-orders');
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        allOrders = data.orders;
-                        displayOrders(allOrders);
-                    }
-                } catch (error) {
-                    console.error('Error loading orders:', error);
-                }
-            }
-            
-            function displayOrders(orders) {
-                const container = document.getElementById('orders-container');
+                const customerId = document.getElementById('customers').value;
+                const ordersSelect = document.getElementById('orders');
+                const orderItemsDiv = document.getElementById('order-items');
                 
-                if (orders.length === 0) {
-                    container.innerHTML = '<div class="loading">No orders found</div>';
+                if (!customerId) {
+                    ordersSelect.innerHTML = '<option value="">Select order...</option>';
+                    ordersSelect.disabled = true;
+                    orderItemsDiv.innerHTML = '';
                     return;
                 }
+
+                try {
+                    const response = await fetch(`/api/orders/${customerId}`);
+                    const orders = await response.json();
+                    
+                    ordersSelect.innerHTML = '<option value="">Select order...</option>';
+                    orders.forEach(order => {
+                        const option = document.createElement('option');
+                        option.value = order.id;
+                        option.textContent = order.order_number;
+                        ordersSelect.appendChild(option);
+                    });
+                    ordersSelect.disabled = false;
+                    
+                    // Clear order items
+                    orderItemsDiv.innerHTML = '';
+                    
+                    return orders; // Return orders for external use
+                } catch (error) {
+                    console.error('Error loading orders:', error);
+                    return [];
+                }
+            }
+
+            async function loadOrderItems() {
+                const orderId = document.getElementById('orders').value;
+                const filterValue = document.getElementById('filter').value;
+                const orderItemsDiv = document.getElementById('order-items');
                 
-                container.innerHTML = orders.map(order => `
-                    <div class="order-card">
-                        <div class="order-header">
-                            <div>
-                                <div class="order-number">${order.order_number}</div>
-                                <div class="order-date">${new Date(order.order_date).toLocaleDateString()}</div>
+                if (!orderId) {
+                    orderItemsDiv.innerHTML = '';
+                    return;
+                }
+
+                orderItemsDiv.innerHTML = '<div class="loading">Loading order items...</div>';
+
+                try {
+                    const response = await fetch(`/api/order-items/${orderId}`);
+                    const orderItems = await response.json();
+                    
+                    if (orderItems.length === 0) {
+                        orderItemsDiv.innerHTML = '<p>No items found for this order.</p>';
+                        return;
+                    }
+                    
+                    // Filter items based on selection
+                    let filteredItems = orderItems;
+                    if (filterValue === 'undelivered') {
+                        filteredItems = orderItems.filter(item => {
+                            const delivered = item.delivered_quantity;
+                            const total = item.quantity;
+                            return delivered < total; // Show only items that are not fully delivered
+                        });
+                    }
+                    
+                    if (filteredItems.length === 0) {
+                        orderItemsDiv.innerHTML = '<p>No items match the selected filter.</p>';
+                        return;
+                    }
+                    
+                    let html = '';
+                    filteredItems.forEach(item => {
+                        const delivered = item.delivered_quantity;
+                        const total = item.quantity;
+                        const undelivered = total - delivered;
+                        let statusClass = '';
+                        let statusText = '';
+                        if (delivered >= total) {
+                            statusClass = 'delivered';
+                            statusText = 'Delivered';
+                        } else if (delivered === 0) {
+                            statusClass = 'undelivered';
+                            statusText = `0/${total} delivered`;
+                        } else {
+                            statusClass = 'partial';
+                            statusText = `${delivered}/${total} delivered`;
+                        }
+                        html += `
+                            <div class="order-item ${statusClass}">
+                                <h3>${item.item_name} (${item.customer_code})</h3>
+                                <p><strong>Product:</strong> ${item.product_name}</p>
+                                <p><strong>Quantity:</strong> ${total}</p>
+                                <p><strong>Delivered:</strong> ${delivered}</p>
+                                <p><strong>Remaining:</strong> ${undelivered}</p>
+                                <p class="status-${statusClass}"><strong>Status:</strong> ${statusText}</p>
+                                ${item.delivery_date ? `<p><strong>Delivery Date:</strong> ${item.delivery_date}</p>` : ''}
                             </div>
-                            <div class="order-status">${getStatusBadge(order.status)}</div>
-                        </div>
-                        <div class="customer-name">${order.customer_name}</div>
-                        <div class="items-list">
-                            ${order.items.map(item => `
-                                <div class="item-row">
-                                    <div>
-                                        <strong>${item.product_name}</strong>
-                                        <br><small>${item.customer_code}</small>
-                                    </div>
-                                    <div>
-                                        ${item.delivered_quantity}/${item.quantity} delivered
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `).join('');
+                        `;
+                    });
+                    
+                    orderItemsDiv.innerHTML = html;
+                } catch (error) {
+                    console.error('Error loading order items:', error);
+                    orderItemsDiv.innerHTML = '<p>Error loading order items.</p>';
+                }
             }
             
-            function getStatusBadge(status) {
-                const badges = {
-                    'pending': '<span style="background: #ffc107; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem;">Pending</span>',
-                    'partial': '<span style="background: #17a2b8; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem;">Partial</span>',
-                    'complete': '<span style="background: #28a745; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem;">Complete</span>'
-                };
-                return badges[status] || badges['pending'];
+            // Handle URL parameters for filtering
+            async function handleUrlParameters() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const filterType = urlParams.get('filter');
+                const filterValue = urlParams.get('value');
+                
+                if (filterType === 'order' && filterValue) {
+                    console.log('Auto-filtering for order:', filterValue);
+                    
+                    // Show status message
+                    const statusDiv = document.getElementById('filter-status');
+                    const messageSpan = document.getElementById('filter-message');
+                    statusDiv.style.display = 'block';
+                    messageSpan.textContent = `Looking for order: ${filterValue}`;
+                    
+                    try {
+                        // First, we need to find which customer has this order
+                        const customersResponse = await fetch('/api/customers');
+                        const customers = await customersResponse.json();
+                        
+                        messageSpan.textContent = `Searching through ${customers.length} customers...`;
+                        
+                        // Search through each customer's orders to find the target order
+                        for (const customer of customers) {
+                            const ordersResponse = await fetch(`/api/orders/${customer.id}`);
+                            const orders = await ordersResponse.json();
+                            
+                            const targetOrder = orders.find(order => order.order_number === filterValue);
+                            if (targetOrder) {
+                                console.log('Found order in customer:', customer.name);
+                                messageSpan.textContent = `Found order in customer: ${customer.name}`;
+                                
+                                // Set the customer dropdown
+                                const customerSelect = document.getElementById('customers');
+                                customerSelect.value = customer.id;
+                                
+                                // Trigger order loading
+                                await loadOrders();
+                                
+                                // Wait a bit for orders to load, then select the target order
+                                setTimeout(() => {
+                                    const ordersSelect = document.getElementById('orders');
+                                    if (ordersSelect) {
+                                        for (let i = 0; i < ordersSelect.options.length; i++) {
+                                            if (ordersSelect.options[i].textContent === filterValue) {
+                                                ordersSelect.selectedIndex = i;
+                                                ordersSelect.dispatchEvent(new Event('change'));
+                                                console.log('Order selected:', filterValue);
+                                                messageSpan.textContent = `Order selected: ${filterValue}`;
+                                                
+                                                // Hide status after a delay
+                                                setTimeout(() => {
+                                                    statusDiv.style.display = 'none';
+                                                }, 2000);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }, 500);
+                                
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error auto-filtering:', error);
+                        messageSpan.textContent = `Error: ${error.message}`;
+                    }
+                }
             }
             
-            // Filter functionality
-            document.getElementById('customer-filter').addEventListener('change', filterOrders);
-            document.getElementById('date-filter').addEventListener('change', filterOrders);
-            document.getElementById('status-filter').addEventListener('change', filterOrders);
-            
-            function filterOrders() {
-                const customerId = document.getElementById('customer-filter').value;
-                const dateFilter = document.getElementById('date-filter').value;
-                const statusFilter = document.getElementById('status-filter').value;
-                
-                let filtered = allOrders;
-                
-                if (customerId) {
-                    filtered = filtered.filter(order => order.customer_id == customerId);
-                }
-                
-                if (dateFilter) {
-                    filtered = filtered.filter(order => order.order_date.startsWith(dateFilter));
-                }
-                
-                if (statusFilter) {
-                    filtered = filtered.filter(order => order.status === statusFilter);
-                }
-                
-                displayOrders(filtered);
-            }
-            
-            // Load data on page load
-            loadCustomers();
-            loadOrders();
+            // Load initial data and handle URL parameters
+            handleUrlParameters();
         </script>
     </body>
     </html>
     """
-    return render_template_string(html, session=session, get_role_display_name=get_role_display_name)
+    return render_template_string(html)
+
+@app.route('/news')
+@login_required
+def news_page():
+    """News page showing recent order activity"""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>News - Orders Mobile</title>
+        <style>
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+                margin: 0; 
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .container { 
+                max-width: 600px; 
+                margin: 0 auto; 
+                background: white; 
+                padding: 20px; 
+                border-radius: 10px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h1 { 
+                color: #333; 
+                text-align: center; 
+                margin-bottom: 30px;
+            }
+            .back-btn {
+                display: inline-block;
+                padding: 10px 20px;
+                background: #6C757D;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-weight: bold;
+            }
+            .back-btn:hover {
+                background: #5A6268;
+            }
+            .news-item {
+                background: white;
+                padding: 15px;
+                margin: 10px 0;
+                border-radius: 8px;
+                border-left: 4px solid #FF6B35;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            .news-item:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            }
+            .news-item.created {
+                border-left-color: #28A745;
+            }
+            .news-item.updated {
+                border-left-color: #007AFF;
+            }
+            .news-item.delivery {
+                border-left-color: #6F42C1;
+            }
+            .news-item.deleted {
+                border-left-color: #DC3545;
+            }
+            .news-time {
+                color: #666;
+                font-size: 12px;
+                margin-bottom: 5px;
+            }
+            .news-title {
+                font-weight: bold;
+                margin-bottom: 5px;
+                color: #333;
+            }
+            .news-details {
+                color: #666;
+                font-size: 14px;
+            }
+            .loading {
+                text-align: center;
+                color: #666;
+                font-style: italic;
+                padding: 20px;
+            }
+            .refresh-btn {
+                background: #FF6B35;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-bottom: 20px;
+            }
+            .refresh-btn:hover {
+                background: #E55A2B;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <a href="/" class="back-btn">← Back to Home</a>
+            <h1>📰 Recent Activity</h1>
+            
+            <button onclick="loadNews()" class="refresh-btn">🔄 Refresh</button>
+            
+            <div id="news-content">
+                <div class="loading">Loading recent activity...</div>
+            </div>
+        </div>
+
+        <script>
+            function loadNews() {
+                document.getElementById('news-content').innerHTML = '<div class="loading">Loading recent activity...</div>';
+                
+                fetch('/api/news')
+                    .then(response => response.json())
+                    .then(data => {
+                        const newsContent = document.getElementById('news-content');
+                        
+                        if (data.length === 0) {
+                            newsContent.innerHTML = '<div class="loading">No recent activity found in the last 24 hours.</div>';
+                            return;
+                        }
+                        
+                        let html = '';
+                        data.forEach(item => {
+                            const timeAgo = getTimeAgo(new Date(item.timestamp));
+                            const actionClass = item.action.toLowerCase();
+                            const clickHandler = item.link ? `onclick="navigateToOrder('${item.link}')"` : '';
+                            
+                            html += `
+                                <div class="news-item ${actionClass}" ${clickHandler}>
+                                    <div class="news-time">${timeAgo}</div>
+                                    <div class="news-title">${item.title}</div>
+                                    <div class="news-details">${item.details}</div>
+                                </div>
+                            `;
+                        });
+                        
+                        newsContent.innerHTML = html;
+                    })
+                    .catch(error => {
+                        console.error('Error loading news:', error);
+                        document.getElementById('news-content').innerHTML = '<div class="loading">Error loading recent activity.</div>';
+                    });
+            }
+            
+            function getTimeAgo(date) {
+                const now = new Date();
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+                
+                if (diffMins < 1) return 'Just now';
+                if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+                if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+            }
+            
+            // Load news when page loads
+            loadNews();
+            
+            function navigateToOrder(link) {
+                // Navigate to the orders page with the filter
+                window.location.href = link;
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
 
 @app.route('/api/all-orders')
 def get_all_orders():
@@ -946,31 +1142,607 @@ def get_all_orders():
 @login_required
 def labels_page():
     """Mobile label generation page"""
-    # This would be the existing labels page from mobile_api.py
-    # For now, redirect to mobile interface
     html = """
     <!DOCTYPE html>
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Label Generation</title>
+        <title>Labels - Orders Mobile</title>
         <style>
-            body { font-family: -apple-system, sans-serif; margin: 0; padding: 20px; }
-            .container { max-width: 600px; margin: 0 auto; }
-            .back-btn { display: inline-block; padding: 10px 20px; background: #6c757d; color: white; text-decoration: none; border-radius: 8px; margin-bottom: 20px; }
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+                margin: 0; 
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .container { 
+                max-width: 600px; 
+                margin: 0 auto; 
+                background: white; 
+                padding: 20px; 
+                border-radius: 10px; 
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h1 { 
+                color: #333; 
+                text-align: center; 
+                margin-bottom: 30px;
+            }
+            .back-btn {
+                display: inline-block;
+                padding: 10px 20px;
+                background: #6C757D;
+                color: white;
+                text-decoration: none;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-weight: bold;
+            }
+            .back-btn:hover {
+                background: #5A6268;
+            }
+            select, button, input { 
+                width: 100%; 
+                padding: 12px; 
+                margin: 10px 0; 
+                border: 1px solid #ddd; 
+                border-radius: 5px; 
+                font-size: 16px;
+            }
+            select:disabled { 
+                background: #f5f5f5; 
+                color: #999;
+            }
+            button { 
+                background: #007AFF; 
+                color: white; 
+                border: none; 
+                cursor: pointer;
+            }
+            button:hover { 
+                background: #0056CC;
+            }
+            button:disabled { 
+                background: #ccc; 
+                cursor: not-allowed;
+            }
+            .label-preview { 
+                margin-top: 20px; 
+                padding: 15px; 
+                background: #f9f9f9; 
+                border-radius: 5px; 
+                border: 1px solid #ddd;
+            }
+            .loading { 
+                text-align: center; 
+                color: #666; 
+                font-style: italic;
+            }
+            .button-group {
+                display: flex;
+                gap: 10px;
+                margin: 20px 0;
+            }
+            
+            .cart-section {
+                margin-top: 30px;
+                padding: 20px;
+                background: #f8f9fa;
+                border-radius: 8px;
+            }
+            
+            .cart-info {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }
+            
+            .cart-items {
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            
+            .cart-item {
+                background: white;
+                padding: 10px;
+                margin: 5px 0;
+                border-radius: 5px;
+                border-left: 4px solid #007bff;
+            }
+            
+            .cart-list {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
         </style>
     </head>
     <body>
         <div class="container">
-            <a href="/" class="back-btn">← Back to Dashboard</a>
-            <h1>🏷️ Label Generation</h1>
-            <p>This feature is available in the mobile interface.</p>
-            <a href="/mobile" style="background: #007AFF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; margin-top: 20px;">Go to Mobile Interface</a>
+            <a href="/" class="back-btn">← Back to Home</a>
+            <h1>🏷️ Labels</h1>
+            
+            <label for="customers">Customer:</label>
+            <select id="customers" onchange="loadOrders()">
+                <option value="">Select customer...</option>
+            </select>
+            
+            <label for="orders">Order:</label>
+            <select id="orders" onchange="loadItems()" disabled>
+                <option value="">Select order...</option>
+            </select>
+            
+            <label for="items">Item:</label>
+            <select id="items" onchange="updateLabelPreview()" disabled>
+                <option value="">Select item...</option>
+            </select>
+            
+            <div class="form-group">
+                <label for="quantity">Quantity:</label>
+                <input type="number" id="quantity" min="1" value="1" class="form-control">
+            </div>
+            
+            <div class="form-group">
+                <label for="delivery_date">Delivery Date:</label>
+                <select id="delivery_date" class="form-control" disabled>
+                    <option value="">Select delivery date...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="layout">Label Layout:</label>
+                <select id="layout" class="form-control">
+                    <option value="2x3">6 labels per page (2x3)</option>
+                    <option value="2x2">4 labels per page (2x2)</option>
+                </select>
+            </div>
+            
+            <div class="button-group">
+                <button onclick="addToCart()" class="btn btn-primary">Add to Cart</button>
+                <button id="generateBtn" onclick="generateLabel()" class="btn btn-success">Generate Single Label</button>
+            </div>
+            
+            <div class="cart-section">
+                <h3>Label Cart</h3>
+                <div class="cart-info">
+                    <span id="cart-count">0</span> labels in cart
+                    <button onclick="viewCart()" class="btn btn-info btn-sm">View Cart</button>
+                    <button onclick="clearCart()" class="btn btn-warning btn-sm">Clear Cart</button>
+                    <button onclick="exportLabels()" class="btn btn-success btn-sm">Export All Labels</button>
+                </div>
+                <div id="cart-items" class="cart-items"></div>
+            </div>
+            
+            <div id="preview" class="preview-section" style="display: none;">
+                <h3>Label Preview</h3>
+                <div id="preview-content"></div>
+            </div>
         </div>
+
+        <script>
+            // Load customers on page load
+            window.onload = function() {
+                loadCustomers();
+            };
+
+            async function loadCustomers() {
+                try {
+                    console.log('Loading customers...');
+                    const response = await fetch('/api/customers');
+                    console.log('Response status:', response.status);
+                    console.log('Response headers:', response.headers);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const customers = await response.json();
+                    console.log('Customers data:', customers);
+                    
+                    if (!Array.isArray(customers)) {
+                        console.error('Customers is not an array:', customers);
+                        alert('Error: Customers data is not in expected format');
+                        return;
+                    }
+                    
+                    const select = document.getElementById('customers');
+                    select.innerHTML = '<option value="">Select customer...</option>';
+                    
+                    customers.forEach(customer => {
+                        const option = document.createElement('option');
+                        option.value = customer.id;
+                        option.textContent = customer.name;
+                        select.appendChild(option);
+                    });
+                    console.log('Customers loaded successfully. Total customers:', customers.length);
+                } catch (error) {
+                    console.error('Error loading customers:', error);
+                    alert('Error loading customers: ' + error.message);
+                }
+            }
+
+            async function loadOrders() {
+                const customerId = document.getElementById('customers').value;
+                const ordersSelect = document.getElementById('orders');
+                const itemsSelect = document.getElementById('items');
+                
+                if (!customerId) {
+                    ordersSelect.innerHTML = '<option value="">Select order...</option>';
+                    ordersSelect.disabled = true;
+                    itemsSelect.innerHTML = '<option value="">Select item...</option>';
+                    itemsSelect.disabled = true;
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/orders/${customerId}`);
+                    const orders = await response.json();
+                    
+                    ordersSelect.innerHTML = '<option value="">Select order...</option>';
+                    orders.forEach(order => {
+                        const option = document.createElement('option');
+                        option.value = order.id;
+                        option.textContent = order.order_number;
+                        ordersSelect.appendChild(option);
+                    });
+                    ordersSelect.disabled = false;
+                    
+                    // Reset items
+                    itemsSelect.innerHTML = '<option value="">Select item...</option>';
+                    itemsSelect.disabled = true;
+                } catch (error) {
+                    console.error('Error loading orders:', error);
+                }
+            }
+
+            async function loadItems() {
+                const orderId = document.getElementById('orders').value;
+                const itemsSelect = document.getElementById('items');
+                const quantityInput = document.getElementById('quantity');
+                const deliveryDateSelect = document.getElementById('delivery_date');
+                
+                if (!orderId) {
+                    itemsSelect.innerHTML = '<option value="">Select item...</option>';
+                    itemsSelect.disabled = true;
+                    quantityInput.disabled = true;
+                    deliveryDateSelect.innerHTML = '<option value="">Select delivery date...</option>';
+                    deliveryDateSelect.disabled = true;
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/undelivered-items/${orderId}`);
+                    const items = await response.json();
+                    
+                    itemsSelect.innerHTML = '<option value="">Select item...</option>';
+                    items.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.customer_code; // Use customer_code as value
+                        option.textContent = `${item.customer_item_name} (${item.customer_code}) - ${item.total_undelivered} remaining`;
+                        option.dataset.remaining = item.total_undelivered;
+                        option.dataset.itemName = item.customer_item_name;
+                        option.dataset.itemCode = item.customer_code;
+                        option.dataset.orderItems = JSON.stringify(item.order_items);
+                        itemsSelect.appendChild(option);
+                    });
+                    itemsSelect.disabled = false;
+                } catch (error) {
+                    console.error('Error loading items:', error);
+                }
+            }
+
+            function updateLabelPreview() {
+                const itemSelect = document.getElementById('items');
+                const quantityInput = document.getElementById('quantity');
+                const deliveryDateSelect = document.getElementById('delivery_date');
+                const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+                const preview = document.getElementById('preview');
+                const content = document.getElementById('preview-content');
+                const generateBtn = document.getElementById('generateBtn');
+                
+                if (itemSelect.value) {
+                    const customerSelect = document.getElementById('customers');
+                    const orderSelect = document.getElementById('orders');
+                    const customerText = customerSelect.options[customerSelect.selectedIndex].text;
+                    const orderText = orderSelect.options[orderSelect.selectedIndex].text;
+                    
+                    // Enable quantity input and set max value
+                    quantityInput.disabled = false;
+                    quantityInput.max = selectedOption.dataset.remaining;
+                    quantityInput.value = Math.min(quantityInput.value, selectedOption.dataset.remaining);
+                    
+                    // Populate delivery date dropdown
+                    deliveryDateSelect.innerHTML = '<option value="">Select delivery date...</option>';
+                    if (selectedOption.dataset.orderItems) {
+                        const orderItems = JSON.parse(selectedOption.dataset.orderItems);
+                        const uniqueDates = new Set();
+                        
+                        orderItems.forEach(item => {
+                            if (item.delivery_date) {
+                                const date = new Date(item.delivery_date);
+                                const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+                                uniqueDates.add(formattedDate);
+                            }
+                        });
+                        
+                        // Sort dates and add to dropdown
+                        Array.from(uniqueDates).sort().forEach(date => {
+                            const option = document.createElement('option');
+                            option.value = date;
+                            option.textContent = date;
+                            deliveryDateSelect.appendChild(option);
+                        });
+                    }
+                    deliveryDateSelect.disabled = false;
+                    
+                    const quantity = quantityInput.value;
+                    
+                    content.innerHTML = `
+                        <p><strong>Customer:</strong> ${customerText}</p>
+                        <p><strong>Order:</strong> ${orderText}</p>
+                        <p><strong>Item:</strong> ${selectedOption.dataset.itemName} (${selectedOption.dataset.itemCode})</p>
+                        <p><strong>Quantity:</strong> ${quantity} of ${selectedOption.dataset.remaining} remaining</p>
+                    `;
+                    preview.style.display = 'block';
+                    generateBtn.disabled = false;
+                } else {
+                    quantityInput.disabled = true;
+                    deliveryDateSelect.innerHTML = '<option value="">Select delivery date...</option>';
+                    deliveryDateSelect.disabled = true;
+                    preview.style.display = 'none';
+                    generateBtn.disabled = true;
+                }
+            }
+
+            async function generateLabel() {
+                const customerId = document.getElementById('customers').value;
+                const orderId = document.getElementById('orders').value;
+                const itemCode = document.getElementById('items').value; // Use itemCode as value
+                const quantity = document.getElementById('quantity').value;
+                const deliveryDate = document.getElementById('delivery_date').value;
+                const layout = document.getElementById('layout').value;
+                
+                if (!customerId || !orderId || !itemCode || !quantity || !deliveryDate) {
+                    alert('Please select customer, order, item, delivery date and set quantity');
+                    return;
+                }
+
+                // Get username from prompt or use default
+                const username = prompt('Enter your name (optional):') || 'mobile_user';
+
+                try {
+                    const response = await fetch('/api/generate-label', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            customer_id: customerId,
+                            order_id: orderId,
+                            item_code: itemCode,
+                            quantity: parseInt(quantity),
+                            delivery_date: deliveryDate,
+                            layout: layout,
+                            username: username
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(result.message);
+                        // Try to download the label PDF with fallback
+                        tryDownload(result.filename);
+                    } else {
+                        alert('Error generating label: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error generating label:', error);
+                    alert('Error generating label');
+                }
+            }
+
+            function tryDownload(filename) {
+                // Try automatic download first
+                const downloadUrl = `/api/download/${filename}`;
+                
+                // Create a temporary link element
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename;
+                link.target = '_blank';
+                
+                // Try to trigger download
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Fallback: show manual download link
+                setTimeout(() => {
+                    const manualDownload = confirm(
+                        "If the file didn't download automatically, click OK to open it in a new tab.\\nYou can then save it manually from your browser."
+                    );
+                    if (manualDownload) {
+                        window.open(downloadUrl, '_blank');
+                    }
+                }, 1000);
+            }
+
+            async function addToCart() {
+                const customerId = document.getElementById('customers').value;
+                const orderId = document.getElementById('orders').value;
+                const itemCode = document.getElementById('items').value;
+                const quantity = document.getElementById('quantity').value;
+                const deliveryDate = document.getElementById('delivery_date').value;
+                const layout = document.getElementById('layout').value;
+                
+                if (!customerId || !orderId || !itemCode || !quantity || !deliveryDate) {
+                    alert('Please select customer, order, item, delivery date and set quantity');
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/add-to-cart', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            customer_id: customerId,
+                            order_id: orderId,
+                            item_code: itemCode,
+                            quantity: parseInt(quantity),
+                            delivery_date: deliveryDate,
+                            layout: layout
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(result.message);
+                        document.getElementById('cart-count').textContent = result.cart_count;
+                        // Clear form for next label
+                        document.getElementById('quantity').value = '1';
+                    } else {
+                        alert('Error adding label: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error adding label:', error);
+                    alert('Error adding label');
+                }
+            }
+
+            async function viewCart() {
+                try {
+                    const response = await fetch('/api/cart');
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        const cartItems = document.getElementById('cart-items');
+                        if (result.items.length === 0) {
+                            cartItems.innerHTML = '<p>Cart is empty</p>';
+                        } else {
+                            let html = '<div class="cart-list">';
+                            result.items.forEach((item, index) => {
+                                html += `
+                                    <div class="cart-item">
+                                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                                            <div style="flex: 1;">
+                                                <strong>${item.customer}</strong><br>
+                                                Order: ${item.order} | Item: ${item.item}<br>
+                                                Code: ${item.code} | Qty: ${item.quantity}
+                                            </div>
+                                            <button onclick="deleteCartItem(${index})" style="background: #DC3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;">×</button>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                            html += '</div>';
+                            cartItems.innerHTML = html;
+                        }
+                    } else {
+                        alert('Error loading cart: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error loading cart:', error);
+                    alert('Error loading cart');
+                }
+            }
+
+            async function deleteCartItem(index) {
+                if (!confirm('Are you sure you want to remove this item from the cart?')) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/delete-cart-item/${index}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(result.message);
+                        document.getElementById('cart-count').textContent = result.cart_count;
+                        viewCart(); // Refresh the cart display
+                    } else {
+                        alert('Error deleting item: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error deleting item:', error);
+                    alert('Error deleting item');
+                }
+            }
+
+            async function clearCart() {
+                if (!confirm('Are you sure you want to clear the cart?')) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/cart/clear', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(result.message);
+                        document.getElementById('cart-count').textContent = '0';
+                        document.getElementById('cart-items').innerHTML = '';
+                    } else {
+                        alert('Error clearing cart: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error clearing cart:', error);
+                    alert('Error clearing cart');
+                }
+            }
+
+            async function exportLabels() {
+                // Get username from prompt or use default
+                const username = prompt('Enter your name (optional):') || 'mobile_user';
+                const layout = document.getElementById('layout').value;
+                
+                try {
+                    const response = await fetch('/api/cart/generate-labels', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            username: username,
+                            layout: layout
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(result.message);
+                        // Update cart count
+                        document.getElementById('cart-count').textContent = result.cart_count;
+                        // Clear cart display
+                        document.getElementById('cart-items').innerHTML = '';
+                        // Try to download the labels PDF with fallback
+                        tryDownload(result.filename);
+                    } else {
+                        alert('Error exporting labels: ' + result.error);
+                    }
+                } catch (error) {
+                    console.error('Error exporting labels:', error);
+                    alert('Error exporting labels');
+                }
+            }
+        </script>
     </body>
     </html>
     """
-    return render_template_string(html, session=session, get_role_display_name=get_role_display_name)
+    return render_template_string(html)
 
 @app.route('/production')
 @login_required
@@ -2214,6 +2986,122 @@ def create_employee():
 
 # Include all other existing routes from mobile_api.py
 # (generate_label, add_label, cart management, etc.)
+
+@app.route('/api/news', methods=['GET'])
+def get_news():
+    """Get recent order activity from the last 24 hours with priority for order changes"""
+    try:
+        db_session = get_session()
+        from datetime import datetime, timedelta
+        
+        # Get timestamp from 24 hours ago
+        yesterday = datetime.now() - timedelta(hours=24)
+        
+        news_items = []
+        
+        # PRIORITY 1: Get recent order CREATIONS (HIGHEST PRIORITY)
+        recent_orders_created = db_session.query(Order).filter(
+            Order.created_at >= yesterday
+        ).order_by(Order.created_at.desc()).limit(10).all()
+        
+        for order in recent_orders_created:
+            customer_name = order.customer.name if order.customer else "Unknown Customer"
+            news_items.append({
+                'timestamp': order.created_at.isoformat(),
+                'action': 'created',
+                'title': f'🆕 New Order Created',
+                'details': f'Order {order.order_number} for {customer_name}',
+                'priority': 1,  # Highest priority
+                'order_id': order.id,
+                'order_number': order.order_number,
+                'link': f'/orders?filter=order&value={order.order_number}'
+            })
+        
+        # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
+        recent_orders_updated = db_session.query(Order).filter(
+            Order.updated_at >= yesterday,
+            Order.updated_at != Order.created_at  # Only actual updates, not creation
+        ).order_by(Order.updated_at.desc()).limit(10).all()
+        
+        for order in recent_orders_updated:
+            customer_name = order.customer.name if order.customer else "Unknown Customer"
+            news_items.append({
+                'timestamp': order.updated_at.isoformat(),
+                'action': 'updated',
+                'title': f'✏️ Order Modified',
+                'details': f'Order {order.order_number} for {customer_name} was updated',
+                'priority': 2,  # High priority
+                'order_id': order.id,
+                'order_number': order.order_number,
+                'link': f'/orders?filter=order&value={order.order_number}'
+            })
+        
+        # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY)
+        recent_deliveries = db_session.query(OrderItem).filter(
+            OrderItem.delivered_quantity > 0,
+            OrderItem.updated_at >= yesterday
+        ).order_by(OrderItem.updated_at.desc()).limit(15).all()
+        
+        for item in recent_deliveries:
+            order = item.order
+            customer_name = order.customer.name if order.customer else "Unknown Customer"
+            item_name = item.item.customer_item_name if item.item else "Unknown Item"
+            
+            # Calculate how much was delivered in this update
+            delivered_change = item.delivered_quantity
+            
+            news_items.append({
+                'timestamp': item.updated_at.isoformat() if item.updated_at else item.created_at.isoformat(),
+                'action': 'delivery',
+                'title': f'📦 Delivery Updated',
+                'details': f'{delivered_change} units delivered for {item_name} (Order {order.order_number})',
+                'priority': 3,  # Lower priority
+                'order_id': order.id,
+                'order_number': order.order_number,
+                'link': f'/orders?filter=order&value={order.order_number}'
+            })
+        
+        # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY)
+        from models.database import Delivery
+        recent_delivery_records = db_session.query(Delivery).filter(
+            Delivery.created_at >= yesterday
+        ).order_by(Delivery.created_at.desc()).limit(10).all()
+        
+        for delivery in recent_delivery_records:
+            order_item = delivery.order_item
+            order = order_item.order
+            customer_name = order.customer.name if order.customer else "Unknown Customer"
+            item_name = order_item.item.customer_item_name if order_item.item else "Unknown Item"
+            
+            news_items.append({
+                'timestamp': delivery.created_at.isoformat(),
+                'action': 'delivery_record',
+                'title': f'📋 Delivery Record Added',
+                'details': f'{delivery.quantity} units delivered on {delivery.delivery_date.strftime("%Y-%m-%d")} for {item_name} (Order {order.order_number})',
+                'priority': 4,  # Lowest priority
+                'order_id': order.id,
+                'order_number': order.order_number,
+                'link': f'/orders?filter=order&value={order.order_number}'
+            })
+        
+        # Sort by priority first (1=highest, 4=lowest), then by timestamp (most recent first)
+        # For same priority, most recent first
+        news_items.sort(key=lambda x: (x['priority'], x['timestamp']), reverse=False)
+        
+        # Limit to 20 most recent items
+        news_items = news_items[:20]
+        
+        # Remove priority field from response
+        for item in news_items:
+            item.pop('priority', None)
+        
+        return jsonify(news_items)
+        
+    except Exception as e:
+        print(f"Error in get_news: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 # Test route to check database status
 @app.route('/api/test-db')
