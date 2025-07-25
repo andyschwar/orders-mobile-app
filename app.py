@@ -2207,10 +2207,7 @@ def get_customers():
                 'country': customer.country
             })
         
-        return jsonify({
-            'success': True,
-            'customers': customers_data
-        })
+        return jsonify(customers_data)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2231,10 +2228,7 @@ def get_orders(customer_id):
                 'customer_name': order.customer.name
             })
         
-        return jsonify({
-            'success': True,
-            'orders': orders_data
-        })
+        return jsonify(orders_data)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2251,24 +2245,28 @@ def get_undelivered_items(order_id):
             )
         ).all()
         
-        items_data = []
+        # Group by unique items like in mobile_api.py
+        unique_items = {}
         for item in order_items:
-            remaining = item.quantity - (item.delivered_quantity or 0)
-            items_data.append({
+            key = item.item.customer_code
+            if key not in unique_items:
+                unique_items[key] = {
+                    'customer_code': item.item.customer_code,
+                    'customer_item_name': item.item.customer_item_name or item.item.product.name,
+                    'product_name': item.item.product.name,
+                    'weight_per_unit': item.item.product.weight_per_unit or 0,
+                    'total_undelivered': 0,
+                    'order_items': []
+                }
+            undelivered = item.quantity - (item.delivered_quantity or 0)
+            unique_items[key]['total_undelivered'] += undelivered
+            unique_items[key]['order_items'].append({
                 'id': item.id,
-                'customer_code': item.item.customer_code,
-                'customer_item_name': item.item.customer_item_name,
-                'product_name': item.item.product.name,
-                'quantity': item.quantity,
-                'delivered_quantity': item.delivered_quantity or 0,
-                'remaining': remaining,
+                'quantity': undelivered,
                 'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
             })
         
-        return jsonify({
-            'success': True,
-            'items': items_data
-        })
+        return jsonify(list(unique_items.values()))
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2285,17 +2283,14 @@ def get_order_items(order_id):
             items_data.append({
                 'id': item.id,
                 'customer_code': item.item.customer_code,
-                'customer_item_name': item.item.customer_item_name,
+                'item_name': item.item.customer_item_name or item.item.product.name,
                 'product_name': item.item.product.name,
                 'quantity': item.quantity,
                 'delivered_quantity': item.delivered_quantity or 0,
                 'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
             })
         
-        return jsonify({
-            'success': True,
-            'items': items_data
-        })
+        return jsonify(items_data)
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
