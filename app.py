@@ -2100,17 +2100,28 @@ def add_to_cart():
         data = request.json
         db_session = get_session()
         
-        # Get order item
-        order_item = db_session.query(OrderItem).filter(OrderItem.id == data['order_item_id']).first()
+        # Get the order and item based on the provided data
+        order = db_session.query(Order).filter(Order.id == data['order_id']).first()
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        
+        # Find the order item by customer_code
+        order_item = db_session.query(OrderItem).join(Item).filter(
+            and_(
+                OrderItem.order_id == data['order_id'],
+                Item.customer_code == data['item_code']
+            )
+        ).first()
+        
         if not order_item:
             return jsonify({'error': 'Order item not found'}), 404
         
         # Create fake order item for cart
         fake_order_item = FakeOrderItem(
             order_data={
-                'order_number': order_item.order.order_number,
-                'customer_name': order_item.order.customer.name,
-                'customer_name_index': order_item.order.customer.name_index
+                'order_number': order.order_number,
+                'customer_name': order.customer.name,
+                'customer_name_index': order.customer.name_index
             },
             item_data={
                 'customer_item_name': order_item.item.customer_item_name,
@@ -2119,7 +2130,7 @@ def add_to_cart():
                 'weight_per_unit': order_item.item.product.weight_per_unit
             },
             quantity=data.get('quantity', 1),
-            delivery_date=order_item.delivery_date
+            delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None
         )
         
         # Add to cart
@@ -2132,6 +2143,9 @@ def add_to_cart():
         })
         
     except Exception as e:
+        print(f"Error in add_to_cart: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/cart', methods=['GET'])
@@ -2142,18 +2156,18 @@ def get_cart():
         cart_items = []
         for item in label_cart:
             cart_items.append({
-                'order_number': item.order.order_number,
-                'customer_name': item.order.customer.name,
-                'customer_code': item.item.customer_code,
-                'product_name': item.item.product.name,
+                'order': item.order.order_number,
+                'customer': item.order.customer.name,
+                'item': item.item.customer_item_name,
+                'code': item.item.customer_code,
                 'quantity': item.quantity,
                 'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
             })
         
         return jsonify({
             'success': True,
-            'cart': cart_items,
-            'count': len(label_cart)
+            'items': cart_items,
+            'cart_count': len(label_cart)
         })
         
     except Exception as e:
@@ -2190,6 +2204,24 @@ def generate_cart_labels():
         
         # Return the PDF file
         return send_file(pdf_path, as_attachment=True, download_name=f"labels_batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete-cart-item/<int:index>', methods=['DELETE'])
+@login_required
+def delete_cart_item(index):
+    """Delete an item from the cart by index"""
+    try:
+        if 0 <= index < len(label_cart):
+            label_cart.pop(index)
+            return jsonify({
+                'success': True,
+                'message': 'Item removed from cart',
+                'cart_count': len(label_cart)
+            })
+        else:
+            return jsonify({'error': 'Invalid index'}), 400
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
