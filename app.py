@@ -25,13 +25,13 @@ if not os.environ.get('SUPABASE_URL'):
     print("Please set the SUPABASE_URL environment variable in your deployment platform.")
     print("For local development, you can set it in your environment or use SQLite.")
 
-from models.database import (
+from src.models.database import (
     Order, Customer, OrderItem, Item, Product, Delivery, DeliveryTerm,
     ProductionPlan, Employee, Component, ProductComponent, User, UserRole,
     get_database_path, init_db
 )
-from utils.label_generator import LabelGenerator
-from utils.auth import authenticate_user, hash_password, verify_password, get_role_display_name, create_default_users
+from src.utils.label_generator import LabelGenerator
+from src.utils.auth import authenticate_user, hash_password, verify_password, get_role_display_name, create_default_users
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
@@ -3232,7 +3232,7 @@ def get_news():
             })
         
         # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY)
-        from models.database import Delivery
+        from src.models.database import Delivery
         recent_delivery_records = db_session.query(Delivery).filter(
             Delivery.created_at >= yesterday
         ).order_by(Delivery.created_at.desc()).limit(10).all()
