@@ -19,9 +19,11 @@ from functools import wraps
 # Add the src directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-# Set Supabase URL if not already set
+# Check for Supabase URL environment variable
 if not os.environ.get('SUPABASE_URL'):
-    os.environ['SUPABASE_URL'] = "postgresql://postgres.vcmnfykughxghaqnqves:KNakli+AVZ*2024@aws-0-eu-central-1.pooler.supabase.com:6543/postgres"
+    print("⚠️  WARNING: SUPABASE_URL environment variable not set!")
+    print("Please set the SUPABASE_URL environment variable in your deployment platform.")
+    print("For local development, you can set it in your environment or use SQLite.")
 
 from models.database import (
     Order, Customer, OrderItem, Item, Product, Delivery, DeliveryTerm,

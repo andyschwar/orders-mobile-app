@@ -8658,3 +8658,30 @@ Traceback (most recent call last):
   File "/Users/andyschwar/orders/.venv/lib/python3.9/site-packages/sqlalchemy/sql/schema.py", line 3222, in _resolve_column
     raise exc.NoReferencedTableError(
 sqlalchemy.exc.NoReferencedTableError: Foreign key associated with column 'items.customer_id' could not find table 'customers' with which to generate a foreign key to target column 'id'
+2025-07-25 13:31:18,491 - __main__ - DEBUG - Starting Orders application...
+2025-07-25 13:31:18,494 - __main__ - DEBUG - Base path: /Users/andyschwar/orders
+2025-07-25 13:31:18,494 - __main__ - DEBUG - Python path: ['/Users/andyschwar/orders/src', '/Users/andyschwar/orders', '/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python39.zip', '/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9', '/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/lib-dynload', '/Users/andyschwar/orders/.venv/lib/python3.9/site-packages']
+2025-07-25 13:31:18,657 - __main__ - DEBUG - Importing MainWindow...
+2025-07-25 13:31:19,144 - __main__ - DEBUG - Creating main window...
+2025-07-25 13:31:19,149 - models.database - DEBUG - Creating SQLite database engine with path: /Users/andyschwar/Google Drive/My drive/_app/orders.db
+2025-07-25 13:31:19,155 - models.database - DEBUG - Creating database tables...
+2025-07-25 13:31:19,157 - models.database - DEBUG - Database tables created successfully
+2025-07-25 13:31:28,759 - views.tabs.order_items_tab - DEBUG - 'Show Incomplete' filter is OFF - showing all items
+2025-07-25 13:31:28,770 - views.tabs.order_items_tab - DEBUG - Found 2341 order items after filtering
+2025-07-25 13:31:28,770 - views.tabs.order_items_tab - DEBUG - Item 0: quantity=44, delivered=0, remaining=44
+2025-07-25 13:31:28,770 - views.tabs.order_items_tab - DEBUG - Item 1: quantity=22, delivered=0, remaining=22
+2025-07-25 13:31:28,770 - views.tabs.order_items_tab - DEBUG - Item 2: quantity=44, delivered=0, remaining=44
+2025-07-25 13:31:28,910 - main - DEBUG - Adding tabs for user: admin with role: admin
+2025-07-25 13:31:28,911 - main - DEBUG - Adding customers tab
+2025-07-25 13:31:28,911 - main - DEBUG - Adding products tab
+2025-07-25 13:31:28,911 - main - DEBUG - Adding items tab
+2025-07-25 13:31:28,911 - main - DEBUG - Adding orders tab
+2025-07-25 13:31:28,911 - main - DEBUG - Adding employees tab
+2025-07-25 13:31:28,911 - main - DEBUG - Adding labels tab
+2025-07-25 13:31:28,912 - main - DEBUG - Adding production plans tab
+2025-07-25 13:31:28,912 - main - DEBUG - Adding reports tab
+2025-07-25 13:31:28,912 - main - DEBUG - Adding components tab
+2025-07-25 13:31:28,912 - main - DEBUG - Adding stock tab
+2025-07-25 13:31:29,083 - main - DEBUG - UI initialized successfully
+2025-07-25 13:31:29,083 - __main__ - DEBUG - Showing main window...
+2025-07-25 13:31:29,096 - __main__ - DEBUG - Starting event loop...
