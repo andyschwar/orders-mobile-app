@@ -2478,7 +2478,7 @@ def add_to_cart():
             # Add to cart
             label_cart.append(fake_order_item)
             
-            print(f"✅ Added to cart: {fake_order_item.item_data['customer_code']}, cart count: {len(label_cart)}")
+            print(f"✅ Added to cart: {fake_order_item.item.customer_code}, cart count: {len(label_cart)}")
             
             return jsonify({
                 'success': True,
