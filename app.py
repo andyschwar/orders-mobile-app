@@ -2337,93 +2337,96 @@ def generate_label():
     """Generate a label for an order item"""
     try:
         data = request.json
-        db_session = get_session()
+        print(f"🔍 Generating label for order {data.get('order_id')}, item {data.get('item_code')}")
         
-        # Get the order and item based on the provided data
-        order = db_session.query(Order).filter(Order.id == data['order_id']).first()
-        if not order:
-            return jsonify({'error': 'Order not found'}), 404
-        
-        # Find the order item by customer_code
-        order_item = db_session.query(OrderItem).join(Item).filter(
-            and_(
-                OrderItem.order_id == data['order_id'],
-                Item.customer_code == data['item_code']
+        with get_session() as db_session:
+            print("✅ Database session established for label generation")
+            
+            # Get the order and item based on the provided data
+            order = db_session.query(Order).filter(Order.id == data['order_id']).first()
+            if not order:
+                return jsonify({'error': 'Order not found'}), 404
+            
+            # Find the order item by customer_code
+            order_item = db_session.query(OrderItem).join(Item).filter(
+                and_(
+                    OrderItem.order_id == data['order_id'],
+                    Item.customer_code == data['item_code']
+                )
+            ).first()
+            
+            if not order_item:
+                return jsonify({'error': 'Order item not found'}), 404
+            
+            # Create fake order item for label generation
+            fake_order_item = FakeOrderItem(
+                order_data={
+                    'order_number': order_item.order.order_number,
+                    'customer_name': order_item.order.customer.name,
+                    'customer_name_index': order_item.order.customer.name_index
+                },
+                item_data={
+                    'customer_item_name': order_item.item.customer_item_name,
+                    'customer_code': order_item.item.customer_code,
+                    'product_name': order_item.item.product.name,
+                    'weight_per_unit': order_item.item.product.weight_per_unit
+                },
+                quantity=data.get('quantity', 1),
+                delivery_date=order_item.delivery_date
             )
-        ).first()
-        
-        if not order_item:
-            return jsonify({'error': 'Order item not found'}), 404
-        
-        # Create fake order item for label generation
-        fake_order_item = FakeOrderItem(
-            order_data={
-                'order_number': order_item.order.order_number,
-                'customer_name': order_item.order.customer.name,
-                'customer_name_index': order_item.order.customer.name_index
-            },
-            item_data={
-                'customer_item_name': order_item.item.customer_item_name,
-                'customer_code': order_item.item.customer_code,
-                'product_name': order_item.item.product.name,
-                'weight_per_unit': order_item.item.product.weight_per_unit
-            },
-            quantity=data.get('quantity', 1),
-            delivery_date=order_item.delivery_date
-        )
-        
-        # Generate label
-        export_dir = tempfile.mkdtemp()
-        label_generator = LabelGenerator(export_dir)
-        
-        # Format the order item for the label generator
-        delivery_items = [{
-            "order_item": fake_order_item,
-            "quantity": fake_order_item.quantity
-        }]
-        
-        try:
-            print(f"🔍 Generating single label with {len(delivery_items)} items")
-            print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
             
-            pdf_path = label_generator.generate_labels(delivery_items)
+            # Generate label
+            export_dir = tempfile.mkdtemp()
+            label_generator = LabelGenerator(export_dir)
             
-            print(f"🔍 PDF generated at: {pdf_path}")
+            # Format the order item for the label generator
+            delivery_items = [{
+                "order_item": fake_order_item,
+                "quantity": fake_order_item.quantity
+            }]
             
-            # Verify the file was created
-            if not os.path.exists(pdf_path):
-                raise Exception("PDF file was not created")
-            
-            # Check file size
-            file_size = os.path.getsize(pdf_path)
-            print(f"🔍 PDF file size: {file_size} bytes")
-            
-            if file_size == 0:
-                raise Exception("PDF file is empty (0 bytes)")
-            
-            # Get filename from the generated PDF path
-            filename = os.path.basename(pdf_path)
-            
-            # Copy file to a more accessible location for download
-            import shutil
-            download_dir = os.path.join(os.getcwd(), 'downloads')
-            os.makedirs(download_dir, exist_ok=True)
-            download_path = os.path.join(download_dir, filename)
-            shutil.copy2(pdf_path, download_path)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Label generated successfully',
-                'filename': filename
-            })
-        except Exception as e:
-            # Clean up temporary directory
-            import shutil
             try:
-                shutil.rmtree(export_dir)
-            except:
-                pass
-            raise e
+                print(f"🔍 Generating single label with {len(delivery_items)} items")
+                print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
+                
+                pdf_path = label_generator.generate_labels(delivery_items)
+                
+                print(f"🔍 PDF generated at: {pdf_path}")
+                
+                # Verify the file was created
+                if not os.path.exists(pdf_path):
+                    raise Exception("PDF file was not created")
+                
+                # Check file size
+                file_size = os.path.getsize(pdf_path)
+                print(f"🔍 PDF file size: {file_size} bytes")
+                
+                if file_size == 0:
+                    raise Exception("PDF file is empty (0 bytes)")
+                
+                # Get filename from the generated PDF path
+                filename = os.path.basename(pdf_path)
+                
+                # Copy file to a more accessible location for download
+                import shutil
+                download_dir = os.path.join(os.getcwd(), 'downloads')
+                os.makedirs(download_dir, exist_ok=True)
+                download_path = os.path.join(download_dir, filename)
+                shutil.copy2(pdf_path, download_path)
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Label generated successfully',
+                    'filename': filename
+                })
+            except Exception as e:
+                # Clean up temporary directory
+                import shutil
+                try:
+                    shutil.rmtree(export_dir)
+                except:
+                    pass
+                raise e
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
