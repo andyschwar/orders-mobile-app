@@ -470,6 +470,10 @@ def index():
             
             if not user:
                 return redirect(url_for('login'))
+            
+            # Extract user attributes before session closes
+            user_role = user.role
+            user_role_display = get_role_display_name(user.role)
         
         html = """
         <!DOCTYPE html>
@@ -581,7 +585,7 @@ def index():
         </body>
         </html>
         """
-        return render_template_string(html, session=session, get_role_display_name=get_role_display_name, user_role=user.role)
+        return render_template_string(html, session=session, get_role_display_name=get_role_display_name, user_role=user_role)
     except Exception as e:
         print(f"Error in mobile home route: {e}")
         import traceback
