@@ -560,44 +560,73 @@ def init_db():
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
-            # Use a completely different approach - disable hstore and use basic connection
-            logger.info("Creating database engine with hstore disabled")
+            logger.info("Creating database engine with hstore bypass")
             
-            # Try multiple approaches to avoid hstore issues
+            # Use a completely different approach - bypass hstore detection entirely
             try:
-                # First try: Use postgresql+psycopg2 with minimal features
+                # Parse the URL to add connection parameters
+                from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+                
+                parsed = urlparse(supabase_url)
+                query_params = parse_qs(parsed.query)
+                
+                # Add connection parameters to bypass hstore issues
+                query_params.update({
+                    'sslmode': ['require'],
+                    'connect_timeout': ['10'],
+                    'application_name': ['orders_mobile_app'],
+                    'options': ['-c statement_timeout=30000']
+                })
+                
+                # Rebuild URL with parameters
+                new_query = urlencode(query_params, doseq=True)
+                enhanced_url = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    new_query,
+                    parsed.fragment
+                ))
+                
+                # Create engine with minimal pool and hstore bypass
                 engine = create_engine(
-                    supabase_url.replace("postgresql://", "postgresql+psycopg2://"),
+                    enhanced_url,
                     pool_size=1,
                     max_overflow=0,
                     pool_pre_ping=True,
-                    pool_recycle=60,
-                    pool_timeout=10,
+                    pool_recycle=30,
+                    pool_timeout=5,
+                    # Disable hstore detection completely
+                    use_native_hstore=False,
                     connect_args={
                         "connect_timeout": 10,
                         "application_name": "orders_mobile_app",
-                        "sslmode": "require"
+                        "sslmode": "require",
+                        "options": "-c statement_timeout=30000"
                     }
                 )
-                logger.info("Created engine with psycopg2 driver")
+                
+                logger.info("Created engine with hstore bypass")
+                
             except Exception as e:
-                logger.warning(f"Failed with psycopg2, trying basic postgresql: {e}")
+                logger.error(f"Enhanced connection failed: {e}")
+                # Fallback to basic connection
                 try:
-                    # Second try: Use basic postgresql driver
                     engine = create_engine(
                         supabase_url,
                         pool_size=1,
                         max_overflow=0,
                         pool_pre_ping=True,
-                        pool_recycle=60,
-                        pool_timeout=10,
+                        pool_recycle=30,
+                        pool_timeout=5,
+                        use_native_hstore=False,
                         connect_args={
                             "connect_timeout": 10,
-                            "application_name": "orders_mobile_app",
-                            "sslmode": "require"
+                            "sslmode": "disable"  # Try without SSL as last resort
                         }
                     )
-                    logger.info("Created basic postgresql engine")
+                    logger.info("Created fallback engine without SSL")
                 except Exception as e2:
                     logger.error(f"All connection attempts failed: {e2}")
                     raise e2
