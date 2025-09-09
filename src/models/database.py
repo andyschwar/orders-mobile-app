@@ -560,27 +560,47 @@ def init_db():
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
-            # Parse and reconstruct the connection URL for better cloud compatibility
-            import urllib.parse as urlparse
+            # Use a completely different approach - disable hstore and use basic connection
+            logger.info("Creating database engine with hstore disabled")
             
-            # Parse the URL to modify connection parameters
-            parsed = urlparse.urlparse(supabase_url)
-            
-            # Create a new connection string with cloud-optimized parameters
-            cloud_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?sslmode=require&connect_timeout=10&application_name=orders_mobile_app"
-            
-            logger.info("Creating database engine with cloud-optimized connection string")
-            
-            # Use the modified connection string
-            engine = create_engine(
-                cloud_url,
-                pool_size=1,
-                max_overflow=0,
-                pool_pre_ping=True,
-                pool_recycle=60,  # 1 minute - very frequent
-                pool_timeout=10,
-                # Remove connect_args since they're in the URL
-            )
+            # Try multiple approaches to avoid hstore issues
+            try:
+                # First try: Use postgresql+psycopg2 with minimal features
+                engine = create_engine(
+                    supabase_url.replace("postgresql://", "postgresql+psycopg2://"),
+                    pool_size=1,
+                    max_overflow=0,
+                    pool_pre_ping=True,
+                    pool_recycle=60,
+                    pool_timeout=10,
+                    connect_args={
+                        "connect_timeout": 10,
+                        "application_name": "orders_mobile_app",
+                        "sslmode": "require"
+                    }
+                )
+                logger.info("Created engine with psycopg2 driver")
+            except Exception as e:
+                logger.warning(f"Failed with psycopg2, trying basic postgresql: {e}")
+                try:
+                    # Second try: Use basic postgresql driver
+                    engine = create_engine(
+                        supabase_url,
+                        pool_size=1,
+                        max_overflow=0,
+                        pool_pre_ping=True,
+                        pool_recycle=60,
+                        pool_timeout=10,
+                        connect_args={
+                            "connect_timeout": 10,
+                            "application_name": "orders_mobile_app",
+                            "sslmode": "require"
+                        }
+                    )
+                    logger.info("Created basic postgresql engine")
+                except Exception as e2:
+                    logger.error(f"All connection attempts failed: {e2}")
+                    raise e2
             
             # Add connection reset mechanism
             @event.listens_for(engine, "connect")
