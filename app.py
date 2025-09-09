@@ -1087,6 +1087,14 @@ def orders_page():
                         const customersResponse = await fetch('/api/customers');
                         const customers = await customersResponse.json();
                         
+                        console.log('Customers response:', customers);
+                        console.log('Customers type:', typeof customers);
+                        console.log('Is array:', Array.isArray(customers));
+                        
+                        if (!Array.isArray(customers)) {
+                            throw new Error('Customers response is not an array');
+                        }
+                        
                         messageSpan.textContent = `Searching through ${customers.length} customers...`;
                         
                         // Search through each customer's orders to find the target order
@@ -2623,28 +2631,30 @@ def get_customers():
     """Get all customers"""
     try:
         print("🔍 Fetching customers from database...")
-        db_session = get_session()
         
-        # Try to get total count first
-        total_count = db_session.query(Customer).count()
-        print(f"📊 Total customers in database: {total_count}")
-        
-        customers = db_session.query(Customer).order_by(Customer.name_index).all()
-        print(f"📋 Retrieved {len(customers)} customers")
-        
-        customers_data = []
-        for customer in customers:
-            customers_data.append({
-                'id': customer.id,
-                'name': customer.name,
-                'name_index': customer.name_index,
-                'display_name': f"{customer.name_index} ({customer.name})" if customer.name_index else customer.name,
-                'city': customer.city,
-                'country': customer.country
-            })
-        
-        print(f"✅ Returning {len(customers_data)} customers")
-        return jsonify(customers_data)
+        with get_session() as db_session:
+            print("✅ Database session established for customers")
+            
+            # Try to get total count first
+            total_count = db_session.query(Customer).count()
+            print(f"📊 Total customers in database: {total_count}")
+            
+            customers = db_session.query(Customer).order_by(Customer.name_index).all()
+            print(f"📋 Retrieved {len(customers)} customers")
+            
+            customers_data = []
+            for customer in customers:
+                customers_data.append({
+                    'id': customer.id,
+                    'name': customer.name,
+                    'name_index': customer.name_index,
+                    'display_name': f"{customer.name_index} ({customer.name})" if customer.name_index else customer.name,
+                    'city': customer.city,
+                    'country': customer.country
+                })
+            
+            print(f"✅ Returning {len(customers_data)} customers")
+            return jsonify(customers_data)
         
     except Exception as e:
         print(f"❌ Error in get_customers: {e}")
@@ -2656,21 +2666,29 @@ def get_customers():
 def get_orders(customer_id):
     """Get orders for a specific customer"""
     try:
-        db_session = get_session()
-        orders = db_session.query(Order).filter(Order.customer_id == customer_id).all()
+        print(f"🔍 Getting orders for customer {customer_id}")
         
-        orders_data = []
-        for order in orders:
-            orders_data.append({
-                'id': order.id,
-                'order_number': order.order_number,
-                'order_date': order.order_date.isoformat(),
-                'customer_name': order.customer.name
-            })
-        
-        return jsonify(orders_data)
+        with get_session() as db_session:
+            print(f"✅ Database session established for customer {customer_id}")
+            
+            orders = db_session.query(Order).filter(Order.customer_id == customer_id).all()
+            print(f"📊 Found {len(orders)} orders for customer {customer_id}")
+            
+            orders_data = []
+            for order in orders:
+                orders_data.append({
+                    'id': order.id,
+                    'order_number': order.order_number,
+                    'order_date': order.order_date.isoformat(),
+                    'customer_name': order.customer.name
+                })
+            
+            return jsonify(orders_data)
         
     except Exception as e:
+        print(f"❌ Error getting orders for customer {customer_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/undelivered-items/<int:order_id>', methods=['GET'])
