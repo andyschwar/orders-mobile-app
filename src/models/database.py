@@ -560,39 +560,27 @@ def init_db():
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
-            # Use Supabase PostgreSQL with minimal configuration
-            try:
-                # Try with minimal SSL configuration first
-                engine = create_engine(
-                    supabase_url,
-                    pool_size=1,
-                    max_overflow=0,
-                    pool_pre_ping=True,
-                    pool_recycle=120,  # 2 minutes
-                    pool_timeout=5,
-                    connect_args={
-                        "connect_timeout": 5,
-                        "application_name": "orders_mobile_app",
-                        "sslmode": "require",
-                        "gssencmode": "disable"
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to create engine with SSL, trying without: {e}")
-                # Fallback to non-SSL if SSL fails
-                engine = create_engine(
-                    supabase_url,
-                    pool_size=1,
-                    max_overflow=0,
-                    pool_pre_ping=True,
-                    pool_recycle=120,
-                    pool_timeout=5,
-                    connect_args={
-                        "connect_timeout": 5,
-                        "application_name": "orders_mobile_app",
-                        "sslmode": "disable"  # Disable SSL as fallback
-                    }
-                )
+            # Parse and reconstruct the connection URL for better cloud compatibility
+            import urllib.parse as urlparse
+            
+            # Parse the URL to modify connection parameters
+            parsed = urlparse.urlparse(supabase_url)
+            
+            # Create a new connection string with cloud-optimized parameters
+            cloud_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?sslmode=require&connect_timeout=10&application_name=orders_mobile_app"
+            
+            logger.info("Creating database engine with cloud-optimized connection string")
+            
+            # Use the modified connection string
+            engine = create_engine(
+                cloud_url,
+                pool_size=1,
+                max_overflow=0,
+                pool_pre_ping=True,
+                pool_recycle=60,  # 1 minute - very frequent
+                pool_timeout=10,
+                # Remove connect_args since they're in the URL
+            )
             
             # Add connection reset mechanism
             @event.listens_for(engine, "connect")

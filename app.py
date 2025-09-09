@@ -66,7 +66,7 @@ from contextlib import contextmanager
 
 @contextmanager
 def get_session():
-    """Context manager for database sessions with simple retry logic"""
+    """Context manager for database sessions with connection validation"""
     session = None
     max_retries = 3
     retry_delay = 1
@@ -74,6 +74,16 @@ def get_session():
     for attempt in range(max_retries):
         try:
             session = Session()
+            
+            # Test the connection before yielding
+            try:
+                session.execute(text("SELECT 1"))
+            except Exception as conn_error:
+                print(f"Connection test failed: {conn_error}")
+                session.close()
+                session = None
+                raise conn_error
+            
             yield session
             session.commit()
             break
@@ -84,14 +94,19 @@ def get_session():
                 except Exception:
                     pass
             
-            # Simple retry for any database error
-            if attempt < max_retries - 1:
-                print(f"Database error (attempt {attempt + 1}/{max_retries}): {e}")
-                time.sleep(retry_delay)
-                retry_delay *= 2
-                continue
+            # Check if it's a connection-related error
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ['connection', 'ssl', 'closed', 'timeout', 'operationalerror']):
+                if attempt < max_retries - 1:
+                    print(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    print(f"Database connection failed after {max_retries} attempts: {e}")
+                    raise Exception(f"Database connection failed. Please try again later.")
             else:
-                print(f"Database failed after {max_retries} attempts: {e}")
+                # Non-connection error, don't retry
                 raise e
         finally:
             if session:
@@ -3703,6 +3718,50 @@ if __name__ == '__main__':
         print("  POST /api/add-to-cart     - Add item to label cart")
         print("  GET  /api/cart            - Get cart contents")
         print("  POST /api/cart/clear      - Clear cart")
+        print("  POST /api/cart/generate-labels - Generate batch labels")
+        
+        # Use PORT environment variable for Render deployment
+        port = int(os.environ.get('PORT', 5002))
+        print(f"\nServer will be available at: http://localhost:{port}")
+        app.run(host='0.0.0.0', port=port, debug=False)
+
+# Simple health check endpoint
+@app.route('/health')
+def health_check():
+    """Simple health check endpoint"""
+    try:
+        with get_session() as db_session:
+            db_session.execute(text("SELECT 1"))
+        return jsonify({'status': 'healthy', 'database': 'connected'})
+    except Exception as e:
+        return jsonify({'status': 'unhealthy', 'database': 'error', 'error': str(e)}), 500
+
+if __name__ == '__main__':
+    try:
+        print("Starting enhanced web application...")
+        print("Available endpoints:")
+        print("  GET  /                     - Mobile home page")
+        print("  GET  /mobile               - Mobile interface")
+        print("  GET  /labels               - Labels page")
+        print("  GET  /news                 - News/activity page")
+        print("  GET  /orders               - Orders page")
+        print("  GET  /api/dashboard-metrics - Dashboard data")
+        print("  GET  /api/orders           - All orders")
+        print("  GET  /api/customers        - All customers")
+        print("  GET  /api/items            - All items")
+        print("  GET  /api/news             - Recent activity")
+        print("  GET  /api/test-db          - Database test")
+        print("  GET  /health               - Health check")
+        print("  POST /login                - User login")
+        print("  POST /logout               - User logout")
+        print("  GET  /api/users            - Get all users (admin only)")
+        print("  POST /api/users            - Create user (admin only)")
+        print("  PUT  /api/users/<id>       - Update user (admin only)")
+        print("  DELETE /api/users/<id>     - Delete user (admin only)")
+        print("  POST /api/generate-label   - Generate single label")
+        print("  POST /api/add-to-cart      - Add item to label cart")
+        print("  GET  /api/cart             - Get cart contents")
+        print("  POST /api/cart/clear       - Clear cart")
         print("  POST /api/cart/generate-labels - Generate batch labels")
         
         # Use PORT environment variable for Render deployment
