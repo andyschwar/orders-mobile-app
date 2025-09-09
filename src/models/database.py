@@ -1,20 +1,96 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, ForeignKey, Text, DateTime, Boolean, Enum, event
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
 import os
 import logging
 import json
 import enum
+import time
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
+# Global engine and session factory
+_engine = None
+_Session = None
+
+def get_session_factory():
+    """Get or create session factory with retry logic"""
+    global _engine, _Session
+    
+    if _Session is None:
+        _engine = init_db()
+        _Session = sessionmaker(bind=_engine)
+    
+    return _Session
+
+@contextmanager
+def get_session_with_retry(max_retries=3, retry_delay=1):
+    """Get database session with retry logic for connection drops"""
+    Session = get_session_factory()
+    session = None
+    
+    for attempt in range(max_retries):
+        try:
+            session = Session()
+            yield session
+            session.commit()
+            break
+        except Exception as e:
+            if session:
+                try:
+                    session.rollback()
+                except Exception as rollback_error:
+                    # Ignore rollback errors during shutdown
+                    pass
+            
+            if "server closed the connection" in str(e) or "connection" in str(e).lower():
+                logger.warning(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    # Recreate engine and session factory
+                    global _engine, _Session
+                    _engine = None
+                    _Session = None
+                    continue
+                else:
+                    logger.error(f"Max retries reached for database connection: {e}")
+                    raise
+            else:
+                # Non-connection error, don't retry
+                raise
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception as close_error:
+                    # Ignore close errors during shutdown
+                    pass
+
+def execute_with_retry(func, *args, **kwargs):
+    """Execute a function with database retry logic"""
+    with get_session_with_retry() as session:
+        return func(session, *args, **kwargs)
+
+def cleanup_database_connections():
+    """Clean up database connections gracefully"""
+    global _engine, _Session
+    
+    try:
+        if _engine:
+            _engine.dispose()
+            _engine = None
+            _Session = None
+    except Exception as e:
+        pass
+
 class Customer(Base):
     __tablename__ = 'customers'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name_index = Column(String(20))  # Index for sorting/reference
     name = Column(String(100), nullable=False)
     street = Column(String(100))
@@ -46,7 +122,7 @@ class Customer(Base):
 class Product(Base):
     __tablename__ = 'products'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
     weight_per_unit = Column(Float)  # Weight in kg
@@ -81,7 +157,7 @@ class Product(Base):
 class Item(Base):
     __tablename__ = 'items'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
     product_id = Column(Integer, ForeignKey('products.id'))
     customer_code = Column(String(50), nullable=False)
@@ -98,7 +174,7 @@ class Item(Base):
 class Order(Base):
     __tablename__ = 'orders'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     customer_id = Column(Integer, ForeignKey('customers.id'))
     order_number = Column(String(50), nullable=False, unique=True)
     order_date = Column(Date, nullable=False)
@@ -111,7 +187,7 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = 'order_items'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     order_id = Column(Integer, ForeignKey('orders.id'))
     item_id = Column(Integer, ForeignKey('items.id'))
     quantity = Column(Integer, nullable=False)
@@ -139,16 +215,19 @@ class OrderItem(Base):
             "TREBIŠOV", "TLMAČE", "DAKO"
         ]
         
-        # Check if item name contains 'kataf'
-        if self.item.customer_item_name and "kataf" in self.item.customer_item_name.lower():
+        customer_name = self.item.customer.name_index
+        item_name = self.item.customer_item_name or ""
+        
+        # Check if item name contains 'kataf' (highest priority)
+        if item_name and "kataf" in item_name.lower():
             return "KATAFOREZA"
             
-        # Check if item name contains 'zinek'
-        if self.item.customer_item_name and "zinek" in self.item.customer_item_name.lower():
+        # Check if item name contains 'zinek' or 'zn' (second priority)
+        if item_name and ("zinek" in item_name.lower() or "zn" in item_name.lower()):
             return "ZINEK"
             
-        # Check if customer index is in fosfat list
-        if self.item.customer.name_index in fosfat_customers:
+        # Check if customer index is in fosfat list (only if no KATAF or Zn/zinek in item name)
+        if customer_name in fosfat_customers:
             return "FOSFAT"
             
         # Default case
@@ -167,21 +246,21 @@ def before_insert_order_item(mapper, connection, target):
 
 @event.listens_for(OrderItem, 'before_update')
 def before_update_order_item(mapper, connection, target):
-    """Recalculate surface treatment before updating OrderItem if item or customer changed"""
-    # Check if the item or customer has changed
+    """Recalculate surface treatment before updating OrderItem if item_id changed"""
+    # Check if the item_id has changed
     state = target._sa_instance_state
-    if state.has_identity:
+    if state.has_identity and state.attrs.item_id.history.has_changes():
         # Get the original values
         original_item_id = state.attrs.item_id.history.deleted[0] if state.attrs.item_id.history.deleted else None
         if original_item_id != target.item_id:
-            # Item has changed, recalculate surface treatment
+            # Only recalculate if item_id actually changed (not for price, quantity, etc.)
             target.surface_treatment = target.calculate_surface_treatment()
 
 class DeliveryTerm(Base):
     """Represents a planned delivery term for an order item"""
     __tablename__ = 'delivery_terms'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     order_item_id = Column(Integer, ForeignKey('order_items.id'))
     term_name = Column(String(50), nullable=False)  # e.g., "May", "June", "July"
     planned_quantity = Column(Integer, nullable=False)
@@ -197,7 +276,7 @@ class DeliveryTerm(Base):
 class Delivery(Base):
     __tablename__ = 'deliveries'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     order_item_id = Column(Integer, ForeignKey('order_items.id'))
     delivery_term_id = Column(Integer, ForeignKey('delivery_terms.id'), nullable=True)  # Which term this delivery fulfills
     quantity = Column(Integer, nullable=False)
@@ -211,7 +290,7 @@ class Delivery(Base):
 class ProductionPlan(Base):
     __tablename__ = 'production_plans'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     plan_type = Column(String(50), nullable=False)  # 'type1', 'type2', 'type3'
     customer_id = Column(Integer, ForeignKey('customers.id'))
     order_id = Column(Integer, ForeignKey('orders.id'), nullable=True)
@@ -254,7 +333,7 @@ class Employee(Base):
 class Component(Base):
     __tablename__ = 'components'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text)
     category = Column(String(50))  # Component category
@@ -318,7 +397,7 @@ class Component(Base):
 class ProductComponent(Base):
     __tablename__ = 'product_components'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     product_id = Column(Integer, ForeignKey('products.id'))
     component_id = Column(Integer, ForeignKey('components.id'))
     quantity = Column(Float, nullable=False)
@@ -337,7 +416,7 @@ class UserRole(enum.Enum):
 class User(Base):
     __tablename__ = 'users'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     email = Column(String(100), unique=True, nullable=True)
@@ -414,7 +493,7 @@ class ComponentStock(Base):
     """Track stock levels for components"""
     __tablename__ = 'component_stock'
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     component_id = Column(Integer, ForeignKey('components.id'), nullable=False)
     current_stock = Column(Float, default=0.0)  # Current stock level
     minimum_stock = Column(Float, default=0.0)  # Minimum stock level (reorder point)
@@ -481,13 +560,31 @@ def init_db():
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
-            # Use Supabase PostgreSQL
-            logger.debug(f"Using Supabase database: {supabase_url}")
-            engine = create_engine(supabase_url)
+            # Use Supabase PostgreSQL with optimized settings
             
-            logger.debug("Creating database tables...")
+            # Add connection pooling and optimization parameters with SSL fixes
+            engine = create_engine(
+                supabase_url,
+                pool_size=3,  # Reduced pool size to avoid connection issues
+                max_overflow=5,  # Reduced overflow connections
+                pool_pre_ping=True,  # Test connections before use
+                pool_recycle=900,  # Recycle connections every 15 minutes (more frequent)
+                pool_timeout=20,  # Reduced timeout for getting connection from pool
+                connect_args={
+                    "connect_timeout": 15,  # Increased connection timeout
+                    "application_name": "orders_mobile_app",  # Identify the app
+                    "keepalives_idle": 30,  # Send keepalive after 30 seconds of inactivity
+                    "keepalives_interval": 5,  # Send keepalive every 5 seconds
+                    "keepalives_count": 3,  # Allow 3 missed keepalives before closing
+                    "sslmode": "require",  # Require SSL connection
+                    "sslcert": None,  # No client certificate
+                    "sslkey": None,  # No client key
+                    "sslrootcert": None,  # No root certificate
+                    "options": "-c statement_timeout=300000 -c tcp_keepalives_idle=30 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3"
+                }
+            )
+            
             Base.metadata.create_all(engine)
-            logger.debug("Database tables created successfully")
             
             return engine
         else:
@@ -504,12 +601,9 @@ def init_db():
                     # Fallback to /tmp if we can't create the directory
                     db_path = '/tmp/orders.db'
             
-            logger.debug(f"Creating database engine with path: {db_path}")
             engine = create_engine(f'sqlite:///{db_path}')
             
-            logger.debug("Creating database tables...")
             Base.metadata.create_all(engine)
-            logger.debug("Database tables created successfully")
             
             return engine
     except Exception as e:

@@ -7,6 +7,7 @@ Builds upon the mobile API with additional features
 import os
 import sys
 import json
+import time
 from datetime import datetime, date, timedelta
 from flask import Flask, jsonify, request, send_file, render_template_string, session, redirect, url_for
 from flask_cors import CORS
@@ -55,15 +56,44 @@ from contextlib import contextmanager
 
 @contextmanager
 def get_session():
-    """Context manager for database sessions that automatically closes them"""
-    session = Session()
-    try:
-        yield session
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+    """Context manager for database sessions that automatically closes them with retry logic"""
+    session = None
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            session = Session()
+            yield session
+            session.commit()
+            break
+        except Exception as e:
+            if session:
+                try:
+                    session.rollback()
+                except Exception:
+                    pass  # Ignore rollback errors
+            
+            # Check if it's a connection-related error
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in ['connection', 'ssl', 'timeout', 'closed']):
+                if attempt < max_retries - 1:
+                    print(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    print(f"Database connection failed after {max_retries} attempts: {e}")
+                    raise e
+            else:
+                # Non-connection error, don't retry
+                raise e
+        finally:
+            if session:
+                try:
+                    session.close()
+                except Exception:
+                    pass  # Ignore close errors
 
 # Create default users if they don't exist
 try:
