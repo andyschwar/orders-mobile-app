@@ -1360,12 +1360,17 @@ def news_page():
 def get_all_orders():
     """Get all orders with items"""
     try:
-        db_session = get_session()
+        print("🔍 Starting all-orders API request...")
         
-        orders = db_session.query(Order).all()
-        orders_data = []
-        
-        for order in orders:
+        with get_session() as db_session:
+            print("✅ Database session established for orders")
+            
+            orders = db_session.query(Order).all()
+            print(f"📊 Found {len(orders)} orders in database")
+            
+            orders_data = []
+            
+            for order in orders:
             items = []
             for order_item in order.items:
                 delivered_qty = order_item.delivered_quantity or 0
@@ -3421,10 +3426,11 @@ def create_employee():
 def get_news():
     """Get recent order activity from the last week with priority for order changes"""
     try:
+        print("🔍 Starting news API request...")
         from datetime import datetime, timedelta
         
-        db_session = get_session()
-        try:
+        with get_session() as db_session:
+            print("✅ Database session established")
             # Get filter parameter (important or all)
             filter_type = request.args.get('filter', 'all')  # 'important' or 'all'
             
@@ -3543,8 +3549,6 @@ def get_news():
                 item.pop('priority', None)
             
             return jsonify(news_items)
-        finally:
-            db_session.close()
         
     except Exception as e:
         print(f"Error in get_news: {str(e)}")
