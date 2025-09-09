@@ -1182,12 +1182,35 @@ def news_page():
             .refresh-btn:hover {
                 background: #E55A2B;
             }
+            .filter-btn {
+                padding: 8px 16px;
+                border: 2px solid #007AFF;
+                background: white;
+                color: #007AFF;
+                border-radius: 20px;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.2s ease;
+            }
+            .filter-btn:hover {
+                background: #007AFF;
+                color: white;
+            }
+            .filter-btn.active {
+                background: #007AFF;
+                color: white;
+            }
         </style>
     </head>
     <body>
         <div class="container">
             <a href="/" class="back-btn">← Back to Home</a>
             <h1>📰 Recent Activity</h1>
+            
+            <div class="filter-buttons" style="margin: 20px 0; display: flex; gap: 10px;">
+                <button onclick="loadNews('all')" class="filter-btn active" id="btn-all">All Records</button>
+                <button onclick="loadNews('important')" class="filter-btn" id="btn-important">Important Only</button>
+            </div>
             
             <button onclick="loadNews()" class="refresh-btn">🔄 Refresh</button>
             
@@ -1197,16 +1220,24 @@ def news_page():
         </div>
 
         <script>
-            function loadNews() {
+            let currentFilter = 'all';
+            
+            function loadNews(filter = currentFilter) {
+                currentFilter = filter;
                 document.getElementById('news-content').innerHTML = '<div class="loading">Loading recent activity...</div>';
                 
-                fetch('/api/news')
+                // Update active button
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(`btn-${filter}`).classList.add('active');
+                
+                fetch(`/api/news?filter=${filter}`)
                     .then(response => response.json())
                     .then(data => {
                         const newsContent = document.getElementById('news-content');
                         
                         if (data.length === 0) {
-                            newsContent.innerHTML = '<div class="loading">No recent activity found in the last 24 hours.</div>';
+                            const filterText = filter === 'important' ? 'important records' : 'any records';
+                            newsContent.innerHTML = `<div class="loading">No recent activity found in the last week (${filterText}).</div>`;
                             return;
                         }
                         
@@ -1247,7 +1278,7 @@ def news_page():
             }
             
             // Load news when page loads
-            loadNews();
+            loadNews('all');
             
             function navigateToOrder(link) {
                 // Navigate to the orders page with the filter
@@ -3322,19 +3353,22 @@ def create_employee():
 
 @app.route('/api/news', methods=['GET'])
 def get_news():
-    """Get recent order activity from the last 24 hours with priority for order changes"""
+    """Get recent order activity from the last week with priority for order changes"""
     try:
         db_session = get_session()
         from datetime import datetime, timedelta
         
-        # Get timestamp from 24 hours ago
-        yesterday = datetime.now() - timedelta(hours=24)
+        # Get filter parameter (important or all)
+        filter_type = request.args.get('filter', 'all')  # 'important' or 'all'
+        
+        # Get timestamp from one week ago
+        one_week_ago = datetime.now() - timedelta(days=7)
         
         news_items = []
         
         # PRIORITY 1: Get recent order CREATIONS (HIGHEST PRIORITY)
         recent_orders_created = db_session.query(Order).filter(
-            Order.created_at >= yesterday
+            Order.created_at >= one_week_ago
         ).order_by(Order.created_at.desc()).limit(10).all()
         
         for order in recent_orders_created:
@@ -3352,7 +3386,7 @@ def get_news():
         
         # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
         recent_orders_updated = db_session.query(Order).filter(
-            Order.updated_at >= yesterday,
+            Order.updated_at >= one_week_ago,
             Order.updated_at != Order.created_at  # Only actual updates, not creation
         ).order_by(Order.updated_at.desc()).limit(10).all()
         
@@ -3369,53 +3403,55 @@ def get_news():
                 'link': f'/orders?filter=order&value={order.order_number}'
             })
         
-        # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY)
-        recent_deliveries = db_session.query(OrderItem).filter(
-            OrderItem.delivered_quantity > 0,
-            OrderItem.updated_at >= yesterday
-        ).order_by(OrderItem.updated_at.desc()).limit(15).all()
+        # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY) - only if not filtering for important only
+        if filter_type != 'important':
+            recent_deliveries = db_session.query(OrderItem).filter(
+                OrderItem.delivered_quantity > 0,
+                OrderItem.updated_at >= one_week_ago
+            ).order_by(OrderItem.updated_at.desc()).limit(15).all()
         
-        for item in recent_deliveries:
-            order = item.order
-            customer_name = order.customer.name if order.customer else "Unknown Customer"
-            item_name = item.item.customer_item_name if item.item else "Unknown Item"
-            
-            # Calculate how much was delivered in this update
-            delivered_change = item.delivered_quantity
-            
-            news_items.append({
-                'timestamp': item.updated_at.isoformat() if item.updated_at else item.created_at.isoformat(),
-                'action': 'delivery',
-                'title': f'📦 Delivery Updated',
-                'details': f'{delivered_change} units delivered for {item_name} (Order {order.order_number})',
-                'priority': 3,  # Lower priority
-                'order_id': order.id,
-                'order_number': order.order_number,
-                'link': f'/orders?filter=order&value={order.order_number}'
-            })
+            for item in recent_deliveries:
+                order = item.order
+                customer_name = order.customer.name if order.customer else "Unknown Customer"
+                item_name = item.item.customer_item_name if item.item else "Unknown Item"
+                
+                # Calculate how much was delivered in this update
+                delivered_change = item.delivered_quantity
+                
+                news_items.append({
+                    'timestamp': item.updated_at.isoformat() if item.updated_at else item.created_at.isoformat(),
+                    'action': 'delivery',
+                    'title': f'📦 Delivery Updated',
+                    'details': f'{delivered_change} units delivered for {item_name} (Order {order.order_number})',
+                    'priority': 3,  # Lower priority
+                    'order_id': order.id,
+                    'order_number': order.order_number,
+                    'link': f'/orders?filter=order&value={order.order_number}'
+                })
         
-        # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY)
-        from src.models.database import Delivery
-        recent_delivery_records = db_session.query(Delivery).filter(
-            Delivery.created_at >= yesterday
-        ).order_by(Delivery.created_at.desc()).limit(10).all()
+        # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY) - only if not filtering for important only
+        if filter_type != 'important':
+            from src.models.database import Delivery
+            recent_delivery_records = db_session.query(Delivery).filter(
+                Delivery.created_at >= one_week_ago
+            ).order_by(Delivery.created_at.desc()).limit(10).all()
         
-        for delivery in recent_delivery_records:
-            order_item = delivery.order_item
-            order = order_item.order
-            customer_name = order.customer.name if order.customer else "Unknown Customer"
-            item_name = order_item.item.customer_item_name if order_item.item else "Unknown Item"
-            
-            news_items.append({
-                'timestamp': delivery.created_at.isoformat(),
-                'action': 'delivery_record',
-                'title': f'📋 Delivery Record Added',
-                'details': f'{delivery.quantity} units delivered on {delivery.delivery_date.strftime("%Y-%m-%d")} for {item_name} (Order {order.order_number})',
-                'priority': 4,  # Lowest priority
-                'order_id': order.id,
-                'order_number': order.order_number,
-                'link': f'/orders?filter=order&value={order.order_number}'
-            })
+            for delivery in recent_delivery_records:
+                order_item = delivery.order_item
+                order = order_item.order
+                customer_name = order.customer.name if order.customer else "Unknown Customer"
+                item_name = order_item.item.customer_item_name if order_item.item else "Unknown Item"
+                
+                news_items.append({
+                    'timestamp': delivery.created_at.isoformat(),
+                    'action': 'delivery_record',
+                    'title': f'📋 Delivery Record Added',
+                    'details': f'{delivery.quantity} units delivered on {delivery.delivery_date.strftime("%Y-%m-%d")} for {item_name} (Order {order.order_number})',
+                    'priority': 4,  # Lowest priority
+                    'order_id': order.id,
+                    'order_number': order.order_number,
+                    'link': f'/orders?filter=order&value={order.order_number}'
+                })
         
         # Sort by priority first (1=highest, 4=lowest), then by timestamp (most recent first)
         # For same priority, most recent first
