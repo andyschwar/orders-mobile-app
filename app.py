@@ -3430,7 +3430,10 @@ def get_news():
             news_items = []
         
             # PRIORITY 1: Get recent order CREATIONS (HIGHEST PRIORITY)
-            recent_orders_created = db_session.query(Order).filter(
+            from sqlalchemy.orm import joinedload
+            recent_orders_created = db_session.query(Order).options(
+                joinedload(Order.customer)
+            ).filter(
                 Order.created_at >= one_week_ago
             ).order_by(Order.created_at.desc()).limit(10).all()
             
@@ -3448,7 +3451,9 @@ def get_news():
                 })
             
             # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
-            recent_orders_updated = db_session.query(Order).filter(
+            recent_orders_updated = db_session.query(Order).options(
+                joinedload(Order.customer)
+            ).filter(
                 Order.updated_at >= one_week_ago,
                 Order.updated_at != Order.created_at  # Only actual updates, not creation
             ).order_by(Order.updated_at.desc()).limit(10).all()
@@ -3468,7 +3473,10 @@ def get_news():
             
             # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY) - only if not filtering for important only
             if filter_type != 'important':
-                recent_deliveries = db_session.query(OrderItem).filter(
+                recent_deliveries = db_session.query(OrderItem).options(
+                    joinedload(OrderItem.order).joinedload(Order.customer),
+                    joinedload(OrderItem.item)
+                ).filter(
                     OrderItem.delivered_quantity > 0,
                     OrderItem.updated_at >= one_week_ago
                 ).order_by(OrderItem.updated_at.desc()).limit(15).all()
@@ -3495,7 +3503,10 @@ def get_news():
             # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY) - only if not filtering for important only
             if filter_type != 'important':
                 from src.models.database import Delivery
-                recent_delivery_records = db_session.query(Delivery).filter(
+                recent_delivery_records = db_session.query(Delivery).options(
+                    joinedload(Delivery.order_item).joinedload(OrderItem.order).joinedload(Order.customer),
+                    joinedload(Delivery.order_item).joinedload(OrderItem.item)
+                ).filter(
                     Delivery.created_at >= one_week_ago
                 ).order_by(Delivery.created_at.desc()).limit(10).all()
             
