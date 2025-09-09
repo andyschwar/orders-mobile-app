@@ -1371,43 +1371,43 @@ def get_all_orders():
             orders_data = []
             
             for order in orders:
-            items = []
-            for order_item in order.items:
-                delivered_qty = order_item.delivered_quantity or 0
-                total_qty = order_item.quantity
+                items = []
+                for order_item in order.items:
+                    delivered_qty = order_item.delivered_quantity or 0
+                    total_qty = order_item.quantity
+                    
+                    # Determine status
+                    if delivered_qty == 0:
+                        status = 'pending'
+                    elif delivered_qty < total_qty:
+                        status = 'partial'
+                    else:
+                        status = 'complete'
+                    
+                    items.append({
+                        'id': order_item.id,
+                        'product_name': order_item.item.product.name,
+                        'customer_code': order_item.item.customer_code,
+                        'quantity': total_qty,
+                        'delivered_quantity': delivered_qty,
+                        'delivery_date': order_item.delivery_date.isoformat() if order_item.delivery_date else None
+                    })
                 
-                # Determine status
-                if delivered_qty == 0:
-                    status = 'pending'
-                elif delivered_qty < total_qty:
-                    status = 'partial'
-                else:
-                    status = 'complete'
-                
-                items.append({
-                    'id': order_item.id,
-                    'product_name': order_item.item.product.name,
-                    'customer_code': order_item.item.customer_code,
-                    'quantity': total_qty,
-                    'delivered_quantity': delivered_qty,
-                    'delivery_date': order_item.delivery_date.isoformat() if order_item.delivery_date else None
+                orders_data.append({
+                    'id': order.id,
+                    'order_number': order.order_number,
+                    'order_date': order.order_date.isoformat(),
+                    'customer_id': order.customer_id,
+                    'customer_name': order.customer.name,
+                    'customer_index': order.customer.name_index,
+                    'items': items,
+                    'status': 'complete' if all(item['delivered_quantity'] >= item['quantity'] for item in items) else 'partial' if any(item['delivered_quantity'] > 0 for item in items) else 'pending'
                 })
             
-            orders_data.append({
-                'id': order.id,
-                'order_number': order.order_number,
-                'order_date': order.order_date.isoformat(),
-                'customer_id': order.customer_id,
-                'customer_name': order.customer.name,
-                'customer_index': order.customer.name_index,
-                'items': items,
-                'status': 'complete' if all(item['delivered_quantity'] >= item['quantity'] for item in items) else 'partial' if any(item['delivered_quantity'] > 0 for item in items) else 'pending'
+            return jsonify({
+                'success': True,
+                'orders': orders_data
             })
-        
-        return jsonify({
-            'success': True,
-            'orders': orders_data
-        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
