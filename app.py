@@ -3724,6 +3724,11 @@ if __name__ == '__main__':
         port = int(os.environ.get('PORT', 5002))
         print(f"\nServer will be available at: http://localhost:{port}")
         app.run(host='0.0.0.0', port=port, debug=False)
+    except Exception as e:
+        print(f"Error starting application: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 # Simple health check endpoint
 @app.route('/health')
@@ -3735,41 +3740,3 @@ def health_check():
         return jsonify({'status': 'healthy', 'database': 'connected'})
     except Exception as e:
         return jsonify({'status': 'unhealthy', 'database': 'error', 'error': str(e)}), 500
-
-if __name__ == '__main__':
-    try:
-        print("Starting enhanced web application...")
-        print("Available endpoints:")
-        print("  GET  /                     - Mobile home page")
-        print("  GET  /mobile               - Mobile interface")
-        print("  GET  /labels               - Labels page")
-        print("  GET  /news                 - News/activity page")
-        print("  GET  /orders               - Orders page")
-        print("  GET  /api/dashboard-metrics - Dashboard data")
-        print("  GET  /api/orders           - All orders")
-        print("  GET  /api/customers        - All customers")
-        print("  GET  /api/items            - All items")
-        print("  GET  /api/news             - Recent activity")
-        print("  GET  /api/test-db          - Database test")
-        print("  GET  /health               - Health check")
-        print("  POST /login                - User login")
-        print("  POST /logout               - User logout")
-        print("  GET  /api/users            - Get all users (admin only)")
-        print("  POST /api/users            - Create user (admin only)")
-        print("  PUT  /api/users/<id>       - Update user (admin only)")
-        print("  DELETE /api/users/<id>     - Delete user (admin only)")
-        print("  POST /api/generate-label   - Generate single label")
-        print("  POST /api/add-to-cart      - Add item to label cart")
-        print("  GET  /api/cart             - Get cart contents")
-        print("  POST /api/cart/clear       - Clear cart")
-        print("  POST /api/cart/generate-labels - Generate batch labels")
-        
-        # Use PORT environment variable for Render deployment
-        port = int(os.environ.get('PORT', 5002))
-        print(f"\nServer will be available at: http://localhost:{port}")
-        app.run(host='0.0.0.0', port=port, debug=False)
-    except Exception as e:
-        print(f"Error starting application: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
