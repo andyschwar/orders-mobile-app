@@ -58,12 +58,14 @@ from contextlib import contextmanager
 def get_session():
     """Context manager for database sessions that automatically closes them with retry logic"""
     session = None
-    max_retries = 3
-    retry_delay = 1
+    max_retries = 5  # Increased retries for SSL issues
+    retry_delay = 0.5  # Start with shorter delay
     
     for attempt in range(max_retries):
         try:
             session = Session()
+            # Test the connection immediately
+            session.execute(text("SELECT 1"))
             yield session
             session.commit()
             break
@@ -76,15 +78,18 @@ def get_session():
             
             # Check if it's a connection-related error
             error_str = str(e).lower()
-            if any(keyword in error_str for keyword in ['connection', 'ssl', 'timeout', 'closed']):
+            connection_errors = ['connection', 'ssl', 'timeout', 'closed', 'hstore', 'operationalerror', 'psycopg2']
+            
+            if any(keyword in error_str for keyword in connection_errors):
                 if attempt < max_retries - 1:
                     print(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
                     time.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
+                    retry_delay = min(retry_delay * 1.5, 5)  # Gradual backoff, max 5 seconds
                     continue
                 else:
                     print(f"Database connection failed after {max_retries} attempts: {e}")
-                    raise e
+                    # Return a more user-friendly error for the last attempt
+                    raise Exception(f"Database connection failed. Please try again later. Error: {str(e)}")
             else:
                 # Non-connection error, don't retry
                 raise e

@@ -565,24 +565,56 @@ def init_db():
             # Add connection pooling and optimization parameters with SSL fixes
             engine = create_engine(
                 supabase_url,
-                pool_size=3,  # Reduced pool size to avoid connection issues
-                max_overflow=5,  # Reduced overflow connections
+                pool_size=2,  # Very small pool size for cloud stability
+                max_overflow=3,  # Minimal overflow connections
                 pool_pre_ping=True,  # Test connections before use
-                pool_recycle=900,  # Recycle connections every 15 minutes (more frequent)
-                pool_timeout=20,  # Reduced timeout for getting connection from pool
+                pool_recycle=300,  # Recycle connections every 5 minutes (very frequent)
+                pool_timeout=15,  # Reduced timeout for getting connection from pool
                 connect_args={
-                    "connect_timeout": 15,  # Increased connection timeout
+                    "connect_timeout": 20,  # Increased connection timeout
                     "application_name": "orders_mobile_app",  # Identify the app
-                    "keepalives_idle": 30,  # Send keepalive after 30 seconds of inactivity
-                    "keepalives_interval": 5,  # Send keepalive every 5 seconds
-                    "keepalives_count": 3,  # Allow 3 missed keepalives before closing
+                    "keepalives_idle": 20,  # Send keepalive after 20 seconds of inactivity
+                    "keepalives_interval": 3,  # Send keepalive every 3 seconds
+                    "keepalives_count": 2,  # Allow 2 missed keepalives before closing
                     "sslmode": "require",  # Require SSL connection
                     "sslcert": None,  # No client certificate
                     "sslkey": None,  # No client key
                     "sslrootcert": None,  # No root certificate
-                    "options": "-c statement_timeout=300000 -c tcp_keepalives_idle=30 -c tcp_keepalives_interval=5 -c tcp_keepalives_count=3"
+                    "gssencmode": "disable",  # Disable GSS encryption
+                    "options": "-c statement_timeout=300000 -c tcp_keepalives_idle=20 -c tcp_keepalives_interval=3 -c tcp_keepalives_count=2 -c ssl_min_protocol_version=TLSv1.2 -c default_transaction_isolation=read_committed"
                 }
             )
+            
+            # Add event listeners to handle connection issues
+            @event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                """Set connection parameters on connect"""
+                try:
+                    with dbapi_connection.cursor() as cursor:
+                        cursor.execute("SET statement_timeout = '300s'")
+                        cursor.execute("SET tcp_keepalives_idle = 20")
+                        cursor.execute("SET tcp_keepalives_interval = 3")
+                        cursor.execute("SET tcp_keepalives_count = 2")
+                except Exception as e:
+                    logger.warning(f"Could not set connection parameters: {e}")
+            
+            @event.listens_for(engine, "checkout")
+            def receive_checkout(dbapi_connection, connection_record, connection_proxy):
+                """Handle connection checkout"""
+                try:
+                    # Test the connection with a simple query
+                    with dbapi_connection.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                        # Also test if hstore extension is available
+                        try:
+                            cursor.execute("SELECT 1::hstore")
+                        except Exception:
+                            # hstore not available, that's okay
+                            pass
+                except Exception as e:
+                    logger.warning(f"Connection checkout failed: {e}")
+                    # Don't raise here, let the retry logic handle it
+                    pass
             
             Base.metadata.create_all(engine)
             
