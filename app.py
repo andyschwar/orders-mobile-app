@@ -43,6 +43,16 @@ try:
     print("Initializing database...")
     engine = init_db()
     print("Database engine created successfully!")
+    
+    # Clear any existing connections from previous runs
+    print("Clearing existing connections...")
+    engine.dispose()  # Close all existing connections
+    time.sleep(2)  # Wait for connections to close
+    
+    # Recreate the engine to get fresh connections
+    print("Recreating database engine...")
+    engine = init_db()
+    
     Session = sessionmaker(bind=engine)
     print("Session maker created successfully!")
     print("Database initialized successfully!")

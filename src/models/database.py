@@ -594,15 +594,24 @@ def init_db():
                     }
                 )
             
-            # Add minimal event listeners
+            # Add connection reset mechanism
             @event.listens_for(engine, "connect")
-            def set_connection_params(dbapi_connection, connection_record):
-                """Set basic connection parameters on connect"""
+            def reset_connection_state(dbapi_connection, connection_record):
+                """Reset connection state and clear any lingering issues"""
                 try:
                     with dbapi_connection.cursor() as cursor:
+                        # Reset connection state
                         cursor.execute("SET statement_timeout = '300s'")
+                        cursor.execute("RESET ALL")  # Reset all session variables
+                        cursor.execute("SELECT 1")  # Test the connection
+                        logger.info("Database connection reset successfully")
                 except Exception as e:
-                    logger.warning(f"Could not set connection parameters: {e}")
+                    logger.warning(f"Could not reset connection state: {e}")
+                    # If reset fails, try to close and recreate
+                    try:
+                        dbapi_connection.close()
+                    except Exception:
+                        pass
             
             Base.metadata.create_all(engine)
             
