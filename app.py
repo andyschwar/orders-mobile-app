@@ -3396,75 +3396,75 @@ def get_news():
                     'order_number': order.order_number,
                     'link': f'/orders?filter=order&value={order.order_number}'
                 })
-        
-        # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
-        recent_orders_updated = db_session.query(Order).filter(
-            Order.updated_at >= one_week_ago,
-            Order.updated_at != Order.created_at  # Only actual updates, not creation
-        ).order_by(Order.updated_at.desc()).limit(10).all()
-        
-        for order in recent_orders_updated:
-            customer_name = order.customer.name if order.customer else "Unknown Customer"
-            news_items.append({
-                'timestamp': order.updated_at.isoformat(),
-                'action': 'updated',
-                'title': f'✏️ Order Modified',
-                'details': f'Order {order.order_number} for {customer_name} was updated',
-                'priority': 2,  # High priority
-                'order_id': order.id,
-                'order_number': order.order_number,
-                'link': f'/orders?filter=order&value={order.order_number}'
-            })
-        
-        # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY) - only if not filtering for important only
-        if filter_type != 'important':
-            recent_deliveries = db_session.query(OrderItem).filter(
-                OrderItem.delivered_quantity > 0,
-                OrderItem.updated_at >= one_week_ago
-            ).order_by(OrderItem.updated_at.desc()).limit(15).all()
-        
-            for item in recent_deliveries:
-                order = item.order
+            
+            # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
+            recent_orders_updated = db_session.query(Order).filter(
+                Order.updated_at >= one_week_ago,
+                Order.updated_at != Order.created_at  # Only actual updates, not creation
+            ).order_by(Order.updated_at.desc()).limit(10).all()
+            
+            for order in recent_orders_updated:
                 customer_name = order.customer.name if order.customer else "Unknown Customer"
-                item_name = item.item.customer_item_name if item.item else "Unknown Item"
-                
-                # Calculate how much was delivered in this update
-                delivered_change = item.delivered_quantity
-                
                 news_items.append({
-                    'timestamp': item.updated_at.isoformat() if item.updated_at else item.created_at.isoformat(),
-                    'action': 'delivery',
-                    'title': f'📦 Delivery Updated',
-                    'details': f'{delivered_change} units delivered for {item_name} (Order {order.order_number})',
-                    'priority': 3,  # Lower priority
+                    'timestamp': order.updated_at.isoformat(),
+                    'action': 'updated',
+                    'title': f'✏️ Order Modified',
+                    'details': f'Order {order.order_number} for {customer_name} was updated',
+                    'priority': 2,  # High priority
                     'order_id': order.id,
                     'order_number': order.order_number,
                     'link': f'/orders?filter=order&value={order.order_number}'
                 })
-        
-        # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY) - only if not filtering for important only
-        if filter_type != 'important':
-            from src.models.database import Delivery
-            recent_delivery_records = db_session.query(Delivery).filter(
-                Delivery.created_at >= one_week_ago
-            ).order_by(Delivery.created_at.desc()).limit(10).all()
-        
-            for delivery in recent_delivery_records:
-                order_item = delivery.order_item
-                order = order_item.order
-                customer_name = order.customer.name if order.customer else "Unknown Customer"
-                item_name = order_item.item.customer_item_name if order_item.item else "Unknown Item"
+            
+            # PRIORITY 3: Get recent DELIVERIES (LOWER PRIORITY) - only if not filtering for important only
+            if filter_type != 'important':
+                recent_deliveries = db_session.query(OrderItem).filter(
+                    OrderItem.delivered_quantity > 0,
+                    OrderItem.updated_at >= one_week_ago
+                ).order_by(OrderItem.updated_at.desc()).limit(15).all()
                 
-                news_items.append({
-                    'timestamp': delivery.created_at.isoformat(),
-                    'action': 'delivery_record',
-                    'title': f'📋 Delivery Record Added',
-                    'details': f'{delivery.quantity} units delivered on {delivery.delivery_date.strftime("%Y-%m-%d")} for {item_name} (Order {order.order_number})',
-                    'priority': 4,  # Lowest priority
-                    'order_id': order.id,
-                    'order_number': order.order_number,
-                    'link': f'/orders?filter=order&value={order.order_number}'
-                })
+                for item in recent_deliveries:
+                    order = item.order
+                    customer_name = order.customer.name if order.customer else "Unknown Customer"
+                    item_name = item.item.customer_item_name if item.item else "Unknown Item"
+                    
+                    # Calculate how much was delivered in this update
+                    delivered_change = item.delivered_quantity
+                    
+                    news_items.append({
+                        'timestamp': item.updated_at.isoformat() if item.updated_at else item.created_at.isoformat(),
+                        'action': 'delivery',
+                        'title': f'📦 Delivery Updated',
+                        'details': f'{delivered_change} units delivered for {item_name} (Order {order.order_number})',
+                        'priority': 3,  # Lower priority
+                        'order_id': order.id,
+                        'order_number': order.order_number,
+                        'link': f'/orders?filter=order&value={order.order_number}'
+                    })
+            
+            # PRIORITY 4: Get recent DELIVERY RECORDS (LOWEST PRIORITY) - only if not filtering for important only
+            if filter_type != 'important':
+                from src.models.database import Delivery
+                recent_delivery_records = db_session.query(Delivery).filter(
+                    Delivery.created_at >= one_week_ago
+                ).order_by(Delivery.created_at.desc()).limit(10).all()
+            
+                for delivery in recent_delivery_records:
+                    order_item = delivery.order_item
+                    order = order_item.order
+                    customer_name = order.customer.name if order.customer else "Unknown Customer"
+                    item_name = order_item.item.customer_item_name if order_item.item else "Unknown Item"
+                    
+                    news_items.append({
+                        'timestamp': delivery.created_at.isoformat(),
+                        'action': 'delivery_record',
+                        'title': f'📋 Delivery Record Added',
+                        'details': f'{delivery.quantity} units delivered on {delivery.delivery_date.strftime("%Y-%m-%d")} for {item_name} (Order {order.order_number})',
+                        'priority': 4,  # Lowest priority
+                        'order_id': order.id,
+                        'order_number': order.order_number,
+                        'link': f'/orders?filter=order&value={order.order_number}'
+                    })
         
             # Sort by priority first (1=highest, 4=lowest), then by timestamp (most recent first)
             # For same priority, most recent first
