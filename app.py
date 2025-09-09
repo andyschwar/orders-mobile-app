@@ -51,15 +51,25 @@ except Exception as e:
     traceback.print_exc()
     raise
 
+from contextlib import contextmanager
+
+@contextmanager
 def get_session():
-    return Session()
+    """Context manager for database sessions that automatically closes them"""
+    session = Session()
+    try:
+        yield session
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
 
 # Create default users if they don't exist
 try:
     print("Creating default users...")
-    db_session = get_session()
-    create_default_users(db_session)
-    db_session.close()
+    with get_session() as db_session:
+        create_default_users(db_session)
     print("Default users created successfully!")
 except Exception as e:
     print(f"Warning: Could not create default users: {e}")
@@ -84,10 +94,10 @@ def admin_required(f):
         if 'user_id' not in session:
             return redirect(url_for('login'))
         
-        db_session = get_session()
-        user = db_session.query(User).filter(User.id == session['user_id']).first()
-        if not user or user.role != UserRole.ADMIN:
-            return jsonify({'error': 'Admin access required'}), 403
+        with get_session() as db_session:
+            user = db_session.query(User).filter(User.id == session['user_id']).first()
+            if not user or user.role != UserRole.ADMIN:
+                return jsonify({'error': 'Admin access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -265,16 +275,16 @@ def login():
         if not username or not password:
             return jsonify({'success': False, 'error': 'Username and password are required'})
         
-        db_session = get_session()
-        user = authenticate_user(db_session, username, password)
-        
-        if user:
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['role'] = user.role.value
-            return jsonify({'success': True, 'message': 'Login successful'})
-        else:
-            return jsonify({'success': False, 'error': 'Invalid username or password'})
+        with get_session() as db_session:
+            user = authenticate_user(db_session, username, password)
+            
+            if user:
+                session['user_id'] = user.id
+                session['username'] = user.username
+                session['role'] = user.role.value
+                return jsonify({'success': True, 'message': 'Login successful'})
+            else:
+                return jsonify({'success': False, 'error': 'Invalid username or password'})
 
 @app.route('/logout')
 def logout():
@@ -405,11 +415,11 @@ def index():
     """Mobile app home screen with 3 tiles"""
     try:
         # Get user info for display
-        db_session = get_session()
-        user = db_session.query(User).filter(User.id == session['user_id']).first()
-        
-        if not user:
-            return redirect(url_for('login'))
+        with get_session() as db_session:
+            user = db_session.query(User).filter(User.id == session['user_id']).first()
+            
+            if not user:
+                return redirect(url_for('login'))
         
         html = """
         <!DOCTYPE html>
@@ -533,39 +543,41 @@ def dashboard_metrics():
     """Get dashboard metrics"""
     try:
         db_session = get_session()
-        
-        # Total orders
-        total_orders = db_session.query(Order).count()
-        
-        # Active customers this month
-        this_month = datetime.now().replace(day=1)
-        active_customers = db_session.query(Order.customer_id).filter(
-            Order.order_date >= this_month
-        ).distinct().count()
-        
-        # Pending deliveries this week
-        this_week = datetime.now().date() - timedelta(days=7)
-        pending_deliveries = db_session.query(OrderItem).filter(
-            and_(
-                OrderItem.delivery_date >= this_week,
-                OrderItem.delivered_quantity < OrderItem.quantity
-            )
-        ).count()
-        
-        # Active employees
-        active_employees = db_session.query(Employee).filter(
-            Employee.is_active == True
-        ).count()
-        
-        return jsonify({
-            'success': True,
-            'metrics': {
-                'total_orders': total_orders,
-                'active_customers': active_customers,
-                'pending_deliveries': pending_deliveries,
-                'active_employees': active_employees
-            }
-        })
+        try:
+            # Total orders
+            total_orders = db_session.query(Order).count()
+            
+            # Active customers this month
+            this_month = datetime.now().replace(day=1)
+            active_customers = db_session.query(Order.customer_id).filter(
+                Order.order_date >= this_month
+            ).distinct().count()
+            
+            # Pending deliveries this week
+            this_week = datetime.now().date() - timedelta(days=7)
+            pending_deliveries = db_session.query(OrderItem).filter(
+                and_(
+                    OrderItem.delivery_date >= this_week,
+                    OrderItem.delivered_quantity < OrderItem.quantity
+                )
+            ).count()
+            
+            # Active employees
+            active_employees = db_session.query(Employee).filter(
+                Employee.is_active == True
+            ).count()
+            
+            return jsonify({
+                'success': True,
+                'metrics': {
+                    'total_orders': total_orders,
+                    'active_customers': active_customers,
+                    'pending_deliveries': pending_deliveries,
+                    'active_employees': active_employees
+                }
+            })
+        finally:
+            db_session.close()
         
     except Exception as e:
         print(f"Error in dashboard metrics: {e}")
@@ -3355,34 +3367,35 @@ def create_employee():
 def get_news():
     """Get recent order activity from the last week with priority for order changes"""
     try:
-        db_session = get_session()
         from datetime import datetime, timedelta
         
-        # Get filter parameter (important or all)
-        filter_type = request.args.get('filter', 'all')  # 'important' or 'all'
+        db_session = get_session()
+        try:
+            # Get filter parameter (important or all)
+            filter_type = request.args.get('filter', 'all')  # 'important' or 'all'
+            
+            # Get timestamp from one week ago
+            one_week_ago = datetime.now() - timedelta(days=7)
+            
+            news_items = []
         
-        # Get timestamp from one week ago
-        one_week_ago = datetime.now() - timedelta(days=7)
-        
-        news_items = []
-        
-        # PRIORITY 1: Get recent order CREATIONS (HIGHEST PRIORITY)
-        recent_orders_created = db_session.query(Order).filter(
-            Order.created_at >= one_week_ago
-        ).order_by(Order.created_at.desc()).limit(10).all()
-        
-        for order in recent_orders_created:
-            customer_name = order.customer.name if order.customer else "Unknown Customer"
-            news_items.append({
-                'timestamp': order.created_at.isoformat(),
-                'action': 'created',
-                'title': f'🆕 New Order Created',
-                'details': f'Order {order.order_number} for {customer_name}',
-                'priority': 1,  # Highest priority
-                'order_id': order.id,
-                'order_number': order.order_number,
-                'link': f'/orders?filter=order&value={order.order_number}'
-            })
+            # PRIORITY 1: Get recent order CREATIONS (HIGHEST PRIORITY)
+            recent_orders_created = db_session.query(Order).filter(
+                Order.created_at >= one_week_ago
+            ).order_by(Order.created_at.desc()).limit(10).all()
+            
+            for order in recent_orders_created:
+                customer_name = order.customer.name if order.customer else "Unknown Customer"
+                news_items.append({
+                    'timestamp': order.created_at.isoformat(),
+                    'action': 'created',
+                    'title': f'🆕 New Order Created',
+                    'details': f'Order {order.order_number} for {customer_name}',
+                    'priority': 1,  # Highest priority
+                    'order_id': order.id,
+                    'order_number': order.order_number,
+                    'link': f'/orders?filter=order&value={order.order_number}'
+                })
         
         # PRIORITY 2: Get recent order MODIFICATIONS (HIGH PRIORITY)
         recent_orders_updated = db_session.query(Order).filter(
@@ -3453,18 +3466,20 @@ def get_news():
                     'link': f'/orders?filter=order&value={order.order_number}'
                 })
         
-        # Sort by priority first (1=highest, 4=lowest), then by timestamp (most recent first)
-        # For same priority, most recent first
-        news_items.sort(key=lambda x: (x['priority'], x['timestamp']), reverse=False)
-        
-        # Limit to 20 most recent items
-        news_items = news_items[:20]
-        
-        # Remove priority field from response
-        for item in news_items:
-            item.pop('priority', None)
-        
-        return jsonify(news_items)
+            # Sort by priority first (1=highest, 4=lowest), then by timestamp (most recent first)
+            # For same priority, most recent first
+            news_items.sort(key=lambda x: (x['priority'], x['timestamp']), reverse=False)
+            
+            # Limit to 20 most recent items
+            news_items = news_items[:20]
+            
+            # Remove priority field from response
+            for item in news_items:
+                item.pop('priority', None)
+            
+            return jsonify(news_items)
+        finally:
+            db_session.close()
         
     except Exception as e:
         print(f"Error in get_news: {str(e)}")
