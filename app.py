@@ -2695,36 +2695,42 @@ def get_orders(customer_id):
 def get_undelivered_items(order_id):
     """Get undelivered items for an order"""
     try:
-        db_session = get_session()
-        order_items = db_session.query(OrderItem).filter(
-            and_(
-                OrderItem.order_id == order_id,
-                OrderItem.delivered_quantity < OrderItem.quantity
-            )
-        ).all()
+        print(f"🔍 Getting undelivered items for order {order_id}")
         
-        # Group by unique items like in mobile_api.py
-        unique_items = {}
-        for item in order_items:
-            key = item.item.customer_code
-            if key not in unique_items:
-                unique_items[key] = {
-                    'customer_code': item.item.customer_code,
-                    'customer_item_name': item.item.customer_item_name or item.item.product.name,
-                    'product_name': item.item.product.name,
-                    'weight_per_unit': item.item.product.weight_per_unit or 0,
-                    'total_undelivered': 0,
-                    'order_items': []
-                }
-            undelivered = item.quantity - (item.delivered_quantity or 0)
-            unique_items[key]['total_undelivered'] += undelivered
-            unique_items[key]['order_items'].append({
-                'id': item.id,
-                'quantity': undelivered,
-                'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
-            })
-        
-        return jsonify(list(unique_items.values()))
+        with get_session() as db_session:
+            print(f"✅ Database session established for undelivered items")
+            
+            order_items = db_session.query(OrderItem).filter(
+                and_(
+                    OrderItem.order_id == order_id,
+                    OrderItem.delivered_quantity < OrderItem.quantity
+                )
+            ).all()
+            print(f"📊 Found {len(order_items)} undelivered items for order {order_id}")
+            
+            # Group by unique items like in mobile_api.py
+            unique_items = {}
+            for item in order_items:
+                key = item.item.customer_code
+                if key not in unique_items:
+                    unique_items[key] = {
+                        'customer_code': item.item.customer_code,
+                        'customer_item_name': item.item.customer_item_name or item.item.product.name,
+                        'product_name': item.item.product.name,
+                        'weight_per_unit': item.item.product.weight_per_unit or 0,
+                        'total_undelivered': 0,
+                        'order_items': []
+                    }
+                undelivered = item.quantity - (item.delivered_quantity or 0)
+                unique_items[key]['total_undelivered'] += undelivered
+                unique_items[key]['order_items'].append({
+                    'id': item.id,
+                    'quantity': undelivered,
+                    'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
+                })
+            
+            print(f"✅ Returning {len(unique_items)} unique undelivered items")
+            return jsonify(list(unique_items.values()))
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2733,24 +2739,33 @@ def get_undelivered_items(order_id):
 def get_order_items(order_id):
     """Get all items for an order"""
     try:
-        db_session = get_session()
-        order_items = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        print(f"🔍 Getting order items for order {order_id}")
         
-        items_data = []
-        for item in order_items:
-            items_data.append({
-                'id': item.id,
-                'customer_code': item.item.customer_code,
-                'item_name': item.item.customer_item_name or item.item.product.name,
-                'product_name': item.item.product.name,
-                'quantity': item.quantity,
-                'delivered_quantity': item.delivered_quantity or 0,
-                'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
-            })
-        
-        return jsonify(items_data)
+        with get_session() as db_session:
+            print(f"✅ Database session established for order {order_id}")
+            
+            order_items = db_session.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+            print(f"📊 Found {len(order_items)} order items for order {order_id}")
+            
+            items_data = []
+            for item in order_items:
+                items_data.append({
+                    'id': item.id,
+                    'customer_code': item.item.customer_code,
+                    'item_name': item.item.customer_item_name or item.item.product.name,
+                    'product_name': item.item.product.name,
+                    'quantity': item.quantity,
+                    'delivered_quantity': item.delivered_quantity or 0,
+                    'delivery_date': item.delivery_date.isoformat() if item.delivery_date else None
+                })
+            
+            print(f"✅ Returning {len(items_data)} order items")
+            return jsonify(items_data)
         
     except Exception as e:
+        print(f"❌ Error getting order items for order {order_id}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/production-plans', methods=['GET'])
