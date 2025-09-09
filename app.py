@@ -2437,49 +2437,54 @@ def add_to_cart():
     """Add an order item to the label cart"""
     try:
         data = request.json
-        db_session = get_session()
+        print(f"🔍 Adding to cart: order {data.get('order_id')}, item {data.get('item_code')}")
         
-        # Get the order and item based on the provided data
-        order = db_session.query(Order).filter(Order.id == data['order_id']).first()
-        if not order:
-            return jsonify({'error': 'Order not found'}), 404
-        
-        # Find the order item by customer_code
-        order_item = db_session.query(OrderItem).join(Item).filter(
-            and_(
-                OrderItem.order_id == data['order_id'],
-                Item.customer_code == data['item_code']
+        with get_session() as db_session:
+            print("✅ Database session established for add to cart")
+            
+            # Get the order and item based on the provided data
+            order = db_session.query(Order).filter(Order.id == data['order_id']).first()
+            if not order:
+                return jsonify({'error': 'Order not found'}), 404
+            
+            # Find the order item by customer_code
+            order_item = db_session.query(OrderItem).join(Item).filter(
+                and_(
+                    OrderItem.order_id == data['order_id'],
+                    Item.customer_code == data['item_code']
+                )
+            ).first()
+            
+            if not order_item:
+                return jsonify({'error': 'Order item not found'}), 404
+            
+            # Create fake order item for cart
+            fake_order_item = FakeOrderItem(
+                order_data={
+                    'order_number': order.order_number,
+                    'customer_name': order.customer.name,
+                    'customer_name_index': order.customer.name_index
+                },
+                item_data={
+                    'customer_item_name': order_item.item.customer_item_name,
+                    'customer_code': order_item.item.customer_code,
+                    'product_name': order_item.item.product.name,
+                    'weight_per_unit': order_item.item.product.weight_per_unit
+                },
+                quantity=data.get('quantity', 1),
+                delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None
             )
-        ).first()
-        
-        if not order_item:
-            return jsonify({'error': 'Order item not found'}), 404
-        
-        # Create fake order item for cart
-        fake_order_item = FakeOrderItem(
-            order_data={
-                'order_number': order.order_number,
-                'customer_name': order.customer.name,
-                'customer_name_index': order.customer.name_index
-            },
-            item_data={
-                'customer_item_name': order_item.item.customer_item_name,
-                'customer_code': order_item.item.customer_code,
-                'product_name': order_item.item.product.name,
-                'weight_per_unit': order_item.item.product.weight_per_unit
-            },
-            quantity=data.get('quantity', 1),
-            delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None
-        )
-        
-        # Add to cart
-        label_cart.append(fake_order_item)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Added to cart',
-            'cart_count': len(label_cart)
-        })
+            
+            # Add to cart
+            label_cart.append(fake_order_item)
+            
+            print(f"✅ Added to cart: {fake_order_item.item_data['customer_code']}, cart count: {len(label_cart)}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Added to cart',
+                'cart_count': len(label_cart)
+            })
         
     except Exception as e:
         print(f"Error in add_to_cart: {e}")
