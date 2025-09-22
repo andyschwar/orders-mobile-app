@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QLineEdit, QMessageBox,
     QDialog, QFormLayout, QDoubleSpinBox, QComboBox, QLabel,
-    QHeaderView
+    QHeaderView, QFileDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from sqlalchemy.orm import Session
@@ -30,49 +30,41 @@ class ComponentDialog(QDialog):
         self.category = QComboBox()
         self.category.setEditable(True)  # Allow adding new categories
         
-        # Price breakdown fields
+        # Price breakdown fields (all in CZK)
         self.buy_price = QDoubleSpinBox()
         self.buy_price.setDecimals(2)
         self.buy_price.setMaximum(100000.0)
-        self.buy_price.setSuffix(" EUR")
+        self.buy_price.setSuffix(" CZK")
         
         self.material_price = QDoubleSpinBox()
         self.material_price.setDecimals(2)
         self.material_price.setMaximum(100000.0)
-        self.material_price.setSuffix(" EUR")
+        self.material_price.setSuffix(" CZK")
         
         self.manufacturing_price = QDoubleSpinBox()
         self.manufacturing_price.setDecimals(2)
         self.manufacturing_price.setMaximum(100000.0)
-        self.manufacturing_price.setSuffix(" EUR")
+        self.manufacturing_price.setSuffix(" CZK")
         
         self.surface_treatment_price = QDoubleSpinBox()
         self.surface_treatment_price.setDecimals(2)
         self.surface_treatment_price.setMaximum(100000.0)
-        self.surface_treatment_price.setSuffix(" EUR")
+        self.surface_treatment_price.setSuffix(" CZK")
         
-        # Total cost display (both currencies)
+        # Total cost display (CZK only)
         cost_layout = QHBoxLayout()
         self.total_cost_czk_label = QLabel("0.00 CZK")
         self.total_cost_czk_label.setStyleSheet("font-weight: bold; color: blue;")
-        self.total_cost_eur_label = QLabel("0.00 EUR")
-        self.total_cost_eur_label.setStyleSheet("font-weight: bold; color: green;")
         cost_layout.addWidget(QLabel("Total Cost:"))
         cost_layout.addWidget(self.total_cost_czk_label)
-        cost_layout.addWidget(QLabel("("))
-        cost_layout.addWidget(self.total_cost_eur_label)
-        cost_layout.addWidget(QLabel(")"))
         cost_layout.addStretch()
         
-        # Legacy unit cost field (read-only, calculated)
+        # Unit cost field (read-only, calculated, CZK only)
         self.unit_cost = QDoubleSpinBox()
         self.unit_cost.setDecimals(2)
         self.unit_cost.setMaximum(100000.0)
-        self.unit_cost.setSuffix(" EUR")
+        self.unit_cost.setSuffix(" CZK")
         self.unit_cost.setReadOnly(True)
-        
-        self.cost_currency = QComboBox()
-        self.cost_currency.addItems(["EUR", "CZK", "USD"])
         
         self.supplier = QLineEdit()
         
@@ -91,7 +83,6 @@ class ComponentDialog(QDialog):
         layout.addRow("Manufacturing Price:", self.manufacturing_price)
         layout.addRow("Surface Treatment Price:", self.surface_treatment_price)
         layout.addRow("", cost_layout)
-        layout.addRow("Currency:", self.cost_currency)
         layout.addRow("Supplier:", self.supplier)
         layout.addRow("Type:", self.component_type)
         
@@ -131,7 +122,6 @@ class ComponentDialog(QDialog):
             self.manufacturing_price.setValue(self.component.manufacturing_price or 0.0)
             self.surface_treatment_price.setValue(self.component.surface_treatment_price or 0.0)
             self.unit_cost.setValue(self.component.unit_cost or 0.0)
-            self.cost_currency.setCurrentText(self.component.cost_currency or "EUR")
             self.supplier.setText(self.component.supplier or "")
             self.component_type.setCurrentText(self.component.component_type or "bought")
         
@@ -164,10 +154,8 @@ class ComponentDialog(QDialog):
         """Update the total cost display"""
         total_czk = (self.buy_price.value() + self.material_price.value() + 
                 self.manufacturing_price.value() + self.surface_treatment_price.value())
-        total_eur = total_czk * 0.041  # CZK to EUR conversion rate
         
         self.total_cost_czk_label.setText(f"{total_czk:.2f} CZK")
-        self.total_cost_eur_label.setText(f"{total_eur:.2f} EUR")
         self.unit_cost.setValue(total_czk)
     
     def get_data(self):
@@ -176,7 +164,6 @@ class ComponentDialog(QDialog):
             return None
             
         total_czk = self.unit_cost.value()
-        total_eur = total_czk * 0.041  # CZK to EUR conversion rate
         
         return {
             "name": self.name.text().strip(),
@@ -187,7 +174,6 @@ class ComponentDialog(QDialog):
             "manufacturing_price": self.manufacturing_price.value(),
             "surface_treatment_price": self.surface_treatment_price.value(),
             "unit_cost": total_czk,  # Calculated total in CZK
-            "unit_cost_eur": total_eur,  # Calculated total in EUR
             "cost_currency": "CZK",  # Always CZK
             "supplier": self.supplier.text().strip() or None,
             "component_type": self.component_type.currentText()
@@ -226,6 +212,10 @@ class ComponentsTab(QWidget):
         self.edit_button.clicked.connect(self.edit_component)
         button_layout.addWidget(self.edit_button)
         
+        self.materials_button = QPushButton("Material Calculation")
+        self.materials_button.clicked.connect(self.manage_materials)
+        button_layout.addWidget(self.materials_button)
+        
         self.delete_button = QPushButton("Delete Component")
         self.delete_button.clicked.connect(self.delete_component)
         button_layout.addWidget(self.delete_button)
@@ -253,13 +243,11 @@ class ComponentsTab(QWidget):
             ("Name", "name"),
             ("Category", "category"),
             ("Description", "description"),
-            ("Buy Price (CZK)", "unit_cost"),
-            ("Material Price (CZK)", "unit_cost"),
-            ("Manufacturing Price (CZK)", "unit_cost"),
-            ("Surface Treatment Price (CZK)", "unit_cost"),
+            ("Buy Price (CZK)", "buy_price"),
+            ("Material Price (CZK)", "material_price"),
+            ("Manufacturing Price (CZK)", "manufacturing_price"),
+            ("Surface Treatment Price (CZK)", "surface_treatment_price"),
             ("Total Cost (CZK)", "unit_cost"),
-            ("Total Cost (EUR)", "unit_cost"),
-            ("Currency", "cost_currency"),
             ("Supplier", "supplier"),
             ("Type", "component_type")
         ]
@@ -280,26 +268,53 @@ class ComponentsTab(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(True)
         
-        # Set column widths
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Name
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Category
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Description
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Buy Price (CZK)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Material Price (CZK)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Manufacturing Price (CZK)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Surface Treatment Price (CZK)
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Total Cost (CZK)
-        header.setSectionResizeMode(8, QHeaderView.ResizeMode.ResizeToContents)  # Total Cost (EUR)
-        header.setSectionResizeMode(9, QHeaderView.ResizeMode.ResizeToContents)  # Currency
-        header.setSectionResizeMode(10, QHeaderView.ResizeMode.Stretch)  # Supplier
-        header.setSectionResizeMode(11, QHeaderView.ResizeMode.ResizeToContents)  # Type
+        # Set column widths immediately after setting headers
+        self.set_initial_column_widths()
         
         layout.addWidget(self.table)
         self.setLayout(layout)
         
         # Load initial data
         self.refresh_data()
+    
+    def set_initial_column_widths(self):
+        """Set initial column widths based on headers"""
+        header = self.table.horizontalHeader()
+        column_count = self.table.columnCount()
+        
+        for col in range(column_count):
+            header_text = self.table.horizontalHeaderItem(col).text()
+            
+            if "Name" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+            elif "Category" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 120)
+            elif "Description" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+            elif "Buy Price" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 100)
+            elif "Material Price" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 100)
+            elif "Manufacturing Price" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 120)
+            elif "Surface Treatment Price" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 120)
+            elif "Total Cost" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 100)
+            elif "Supplier" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+            elif "Type" in header_text:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 100)
+            else:
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(col, 100)
     
     def populate_table(self, components):
         self.table.setRowCount(len(components))
@@ -313,8 +328,6 @@ class ComponentsTab(QWidget):
                 f"{component.manufacturing_price:.2f}" if component.manufacturing_price else "0.00",
                 f"{component.surface_treatment_price:.2f}" if component.surface_treatment_price else "0.00",
                 f"{component.unit_cost:.2f}" if component.unit_cost else "0.00",
-                f"{component.unit_cost_eur:.2f}" if component.unit_cost_eur else "0.00",
-                component.cost_currency or "CZK",
                 component.supplier or "",
                 component.component_type or "bought"
             ]
@@ -392,11 +405,11 @@ class ComponentsTab(QWidget):
                     component.material_price = data["material_price"]
                     component.manufacturing_price = data["manufacturing_price"]
                     component.surface_treatment_price = data["surface_treatment_price"]
-                    component.cost_currency = data["cost_currency"]
+                    component.cost_currency = "CZK"  # Always CZK
                     component.supplier = data["supplier"]
                     component.component_type = data["component_type"]
                     
-                    component.update_unit_cost()  # This will also update EUR conversion
+                    component.update_unit_cost()  # This will calculate total cost
                     
                     self.session.commit()
                     self.refresh_data()
@@ -447,6 +460,36 @@ class ComponentsTab(QWidget):
                 self.session.rollback()
                 QMessageBox.critical(self, "Error", f"Error deleting component: {str(e)}")
     
+    def manage_materials(self):
+        """Open manufacturing materials dialog for selected component"""
+        selected_rows = self.table.selectedItems()
+        if not selected_rows:
+            QMessageBox.warning(self, "Warning", "Please select a component to manage materials")
+            return
+            
+        component_name = self.table.item(selected_rows[0].row(), 0).text()
+        component = self.session.query(Component).filter(Component.name == component_name).first()
+        
+        if not component:
+            QMessageBox.warning(self, "Warning", "Component not found")
+            return
+        
+        # Only allow for manufactured components
+        if component.component_type != 'manufactured':
+            QMessageBox.information(
+                self, "Information", 
+                "Manufacturing materials can only be managed for components with type 'manufactured'.\n"
+                f"Current type: {component.component_type}"
+            )
+            return
+        
+        from views.dialogs.component_materials_dialog import ComponentMaterialsDialog
+        
+        dialog = ComponentMaterialsDialog(self.session, component, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.refresh_data()
+            self.component_updated.emit()
+    
     def export_template(self):
         """Export components template"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -463,7 +506,7 @@ class ComponentsTab(QWidget):
                     'description': ['Standard M6 hex nut', 'M8x20 hex head bolt', '10mm diameter rubber o-ring', 'M6 steel washer', '2mm thick aluminum plate'],
                     'supplier': ['Fastener Supply', 'Fastener Supply', 'Seal Supplier', 'Fastener Supply', 'Metal Supplier'],
                     'unit_cost': [0.15, 0.25, 0.05, 0.08, 2.50],
-                    'cost_currency': ['EUR', 'EUR', 'EUR', 'EUR', 'EUR']
+                    'cost_currency': ['CZK', 'CZK', 'CZK', 'CZK', 'CZK']
                 }
                 
                 df = pd.DataFrame(template_data)

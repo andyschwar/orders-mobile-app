@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QLabel, QLineEdit, QComboBox, QSpinBox,
     QDateEdit, QMessageBox, QDialog, QFormLayout, QDialogButtonBox,
     QHeaderView, QCheckBox, QGroupBox, QRadioButton, QButtonGroup,
-    QTextEdit, QSplitter, QFileDialog, QApplication
+    QTextEdit, QSplitter, QFileDialog, QApplication, QProgressBar, QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtPrintSupport import QPrinter
@@ -11,8 +11,41 @@ from PyQt6.QtGui import QFont, QPainter, QTextDocument, QColor, QBrush
 from sqlalchemy.orm import Session
 from datetime import datetime, date, timedelta
 from utils.permissions import get_permissions_manager
+from models.database import execute_with_retry
 import pandas as pd
 import os
+
+class ProgressDialog(QDialog):
+    """Simple progress dialog for plan generation"""
+    def __init__(self, message: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Generating Plan")
+        self.setModal(True)
+        self.setFixedSize(300, 120)
+        
+        layout = QVBoxLayout()
+        
+        self.label = QLabel(message)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label)
+        
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)  # Indeterminate progress
+        layout.addWidget(self.progress)
+        
+        # Add a cancel button (though it won't actually cancel the operation)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.close)
+        layout.addWidget(self.cancel_button)
+        
+        self.setLayout(layout)
+        
+        # Center the dialog
+        if parent:
+            self.move(parent.geometry().center() - self.rect().center())
+        
+        # Set window flags to make it more visible
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint)
 
 class ProductionPlanDialog(QDialog):
     def __init__(self, plan_type: str, session: Session, parent=None):
@@ -35,10 +68,32 @@ class ProductionPlanDialog(QDialog):
         layout = QFormLayout()
         
         # Customer selection
-        self.customer_combo = QComboBox()
-        self.customer_combo.setMinimumWidth(300)  # Make wider
-        self.load_customers()
-        layout.addRow("Customer:", self.customer_combo)
+        if self.plan_type == 'type2':
+            # For type 2, use a list widget for multiple customer selection
+            customer_label = QLabel("Customers:")
+            customer_layout = QVBoxLayout()
+            
+            # Add "All Customers" checkbox
+            self.all_customers_checkbox = QCheckBox("All Customers")
+            self.all_customers_checkbox.setChecked(True)
+            self.all_customers_checkbox.toggled.connect(self.on_all_customers_toggled)
+            customer_layout.addWidget(self.all_customers_checkbox)
+            
+            # Customer list widget
+            self.customer_list = QListWidget()
+            self.customer_list.setMaximumHeight(150)
+            self.customer_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+            self.customer_list.setEnabled(False)  # Disabled when "All Customers" is checked
+            self.load_customers_list()
+            customer_layout.addWidget(self.customer_list)
+            
+            layout.addRow(customer_label, customer_layout)
+        else:
+            # For other types, use the original combo box
+            self.customer_combo = QComboBox()
+            self.customer_combo.setMinimumWidth(300)  # Make wider
+            self.load_customers()
+            layout.addRow("Customer:", self.customer_combo)
         
         # Order selection (for type 1 and 2)
         if self.plan_type in ['type1', 'type2']:
@@ -48,7 +103,12 @@ class ProductionPlanDialog(QDialog):
             layout.addRow("Order:", self.order_combo)
             
             # Connect customer selection to reload orders
-            self.customer_combo.currentIndexChanged.connect(self.load_orders)
+            if self.plan_type == 'type1':
+                self.customer_combo.currentIndexChanged.connect(self.load_orders)
+            else:
+                # For type 2, disable order selection when multiple customers are possible
+                self.order_combo.setEnabled(False)
+                self.order_combo.setToolTip("Order selection is disabled when multiple customers can be selected")
         
         # Delivery date selection (for type 1)
         if self.plan_type == 'type1':
@@ -138,7 +198,7 @@ class ProductionPlanDialog(QDialog):
             surface_layout.addWidget(self.surface_all)
             
             self.surface_treatment = QComboBox()
-            self.surface_treatment.addItems(["KATAFOREZA", "FOSFAT", "ZINEK"])
+            self.surface_treatment.addItems(["KATAFOREZA", "FOSFAT", "ZINEK", "NONE"])
             self.surface_treatment.setMinimumWidth(200)  # Make wider
             self.surface_treatment.setEnabled(False)  # Disabled when "all" is checked
             surface_layout.addWidget(self.surface_treatment)
@@ -158,66 +218,121 @@ class ProductionPlanDialog(QDialog):
     
     def load_customers(self):
         from models.database import Customer
-        customers = self.session.query(Customer).order_by(Customer.name_index).all()
-        self.customer_combo.clear()
-        self.customer_combo.addItem("All Customers", None)
-        for customer in customers:
-            self.customer_combo.addItem(f"{customer.name_index} - {customer.name}", customer.id)
+        try:
+            customers = self.session.query(Customer).order_by(Customer.name_index).all()
+            self.customer_combo.clear()
+            self.customer_combo.addItem("All Customers", None)
+            for customer in customers:
+                self.customer_combo.addItem(f"{customer.name_index} - {customer.name}", customer.id)
+        except Exception as e:
+            QMessageBox.warning(self, "Database Error", f"Could not load customers: {str(e)}")
+    
+    def load_customers_list(self):
+        """Load customers into the list widget for type 2"""
+        from models.database import Customer
+        try:
+            customers = self.session.query(Customer).order_by(Customer.name_index).all()
+            self.customer_list.clear()
+            for customer in customers:
+                item = QListWidgetItem(f"{customer.name_index} - {customer.name}")
+                item.setData(Qt.ItemDataRole.UserRole, customer.id)
+                self.customer_list.addItem(item)
+        except Exception as e:
+            QMessageBox.warning(self, "Database Error", f"Could not load customers: {str(e)}")
+    
+    def on_all_customers_toggled(self, checked):
+        """Handle the 'All Customers' checkbox toggle"""
+        self.customer_list.setEnabled(not checked)
+        if checked:
+            # Clear all selections when "All Customers" is checked
+            self.customer_list.clearSelection()
     
     def load_orders(self):
         from models.database import Order
-        customer_id = self.customer_combo.currentData()
-        if customer_id:
-            orders = self.session.query(Order).filter(Order.customer_id == customer_id).order_by(Order.order_number).all()
-        else:
-            orders = []
-        
-        self.order_combo.clear()
-        self.order_combo.addItem("All Orders", None)
-        for order in orders:
-            self.order_combo.addItem(order.order_number, order.id)
+        try:
+            # Handle different customer selection methods based on plan type
+            if self.plan_type == 'type2':
+                # For type 2, we don't load orders based on customer selection
+                # since multiple customers can be selected
+                orders = []
+            else:
+                # For other types, use the customer combo
+                customer_id = self.customer_combo.currentData()
+                if customer_id:
+                    orders = self.session.query(Order).filter(Order.customer_id == customer_id).order_by(Order.order_number).all()
+                else:
+                    orders = []
+            
+            self.order_combo.clear()
+            self.order_combo.addItem("All Orders", None)
+            for order in orders:
+                self.order_combo.addItem(order.order_number, order.id)
+        except Exception as e:
+            QMessageBox.warning(self, "Database Error", f"Could not load orders: {str(e)}")
     
     def load_products(self):
         from models.database import Product
-        products = self.session.query(Product).order_by(Product.name).all()
-        self.product_combo.clear()
-        self.product_combo.addItem("All Products", None)
-        for product in products:
-            self.product_combo.addItem(product.name, product.id)
+        try:
+            products = self.session.query(Product).order_by(Product.name).all()
+            self.product_combo.clear()
+            self.product_combo.addItem("All Products", None)
+            for product in products:
+                self.product_combo.addItem(product.name, product.id)
+        except Exception as e:
+            QMessageBox.warning(self, "Database Error", f"Could not load products: {str(e)}")
     
     def load_delivery_dates(self):
         """Load available delivery dates for the selected customer/order"""
         from models.database import OrderItem, Order
         
-        # Get selected customer and order
-        customer_id = self.customer_combo.currentData()
-        order_id = self.order_combo.currentData()
-        
-        # Build query to get unique delivery dates
-        query = self.session.query(OrderItem.delivery_date)
-        
-        if customer_id:
-            query = query.join(Order).filter(Order.customer_id == customer_id)
-        
-        if order_id:
-            query = query.filter(OrderItem.order_id == order_id)
-        
-        # Get unique dates and filter for undelivered items
-        query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
-        query = query.distinct().order_by(OrderItem.delivery_date)
-        
-        delivery_dates = query.all()
-        
-        # Populate the combo box
-        self.delivery_date_combo.clear()
-        for date_obj in delivery_dates:
-            if date_obj.delivery_date:
-                date_str = date_obj.delivery_date.strftime('%Y-%m-%d')
-                self.delivery_date_combo.addItem(date_str, date_obj.delivery_date)
+        try:
+            # Get selected customer and order
+            customer_id = self.customer_combo.currentData()
+            order_id = self.order_combo.currentData()
+            
+            # Build query to get unique delivery dates
+            query = self.session.query(OrderItem.delivery_date)
+            
+            if customer_id:
+                query = query.join(Order).filter(Order.customer_id == customer_id)
+            
+            if order_id:
+                query = query.filter(OrderItem.order_id == order_id)
+            
+            # Get unique dates and filter for undelivered items
+            query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
+            query = query.distinct().order_by(OrderItem.delivery_date)
+            
+            delivery_dates = query.all()
+            
+            # Populate the combo box
+            self.delivery_date_combo.clear()
+            for date_obj in delivery_dates:
+                if date_obj.delivery_date:
+                    date_str = date_obj.delivery_date.strftime('%Y-%m-%d')
+                    self.delivery_date_combo.addItem(date_str, date_obj.delivery_date)
+        except Exception as e:
+            QMessageBox.warning(self, "Database Error", f"Could not load delivery dates: {str(e)}")
     
     def get_params(self):
+        # Handle customer selection based on plan type
+        if self.plan_type == 'type2':
+            if self.all_customers_checkbox.isChecked():
+                customer_ids = None  # All customers
+            else:
+                # Get selected customer IDs from the list
+                customer_ids = []
+                for i in range(self.customer_list.count()):
+                    item = self.customer_list.item(i)
+                    if item.isSelected():
+                        customer_ids.append(item.data(Qt.ItemDataRole.UserRole))
+                if not customer_ids:
+                    customer_ids = None  # No customers selected, treat as all
+        else:
+            customer_ids = self.customer_combo.currentData()
+        
         params = {
-            'customer_id': self.customer_combo.currentData(),
+            'customer_id': customer_ids,
             'delivery_months': [i+1 for i, month in enumerate(self.delivery_months) if month.isChecked()],
             'delivery_year': self.delivery_year.currentData()
         }
@@ -309,9 +424,9 @@ class ProductionPlansTab(QWidget):
         self.setLayout(layout)
     
     def setup_table(self):
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
-            "Order", "Customer Item Name", "Customer Item Code", "Quantity", "Note"
+            "Order", "AVZ Name", "Surface Treatment", "Customer Item Code", "Quantity", "Note"
         ])
         
         # Set column widths
@@ -321,6 +436,7 @@ class ProductionPlansTab(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -359,301 +475,354 @@ class ProductionPlansTab(QWidget):
     
     def generate_plan_data(self, plan_type: str, params: dict):
         """Generate plan data based on type and parameters"""
+        progress_dialog = None
         try:
+            # Show progress dialog
+            progress_dialog = ProgressDialog(f"Generating production plan {plan_type}...", self)
+            progress_dialog.show()
+            QApplication.processEvents()
+            
+            # Use safe database operations with retry logic
             if plan_type == 'type1':
-                data = self.generate_type1_plan(params)
+                def wrapper(session):
+                    return self.generate_type1_plan(session, params)
+                data = execute_with_retry(wrapper)
             elif plan_type == 'type2':
-                data = self.generate_type2_plan(params)
+                def wrapper(session):
+                    return self.generate_type2_plan(session, params)
+                data = execute_with_retry(wrapper)
             elif plan_type == 'type3':
-                data = self.generate_type3_plan(params)
+                def wrapper(session):
+                    return self.generate_type3_plan(session, params)
+                data = execute_with_retry(wrapper)
             else:
                 raise ValueError(f"Unknown plan type: {plan_type}")
+            
+            # Close progress dialog
+            if progress_dialog:
+                progress_dialog.close()
+                progress_dialog = None
             
             self.current_plan_data = data
             self.populate_table(plan_type, data)
             
-            QMessageBox.information(self, "Plan Generated", f"Production plan {plan_type} has been generated successfully!")
+            QMessageBox.information(self, "Plan Generated", f"Production plan {plan_type} has been generated successfully!\n\nFound {len(data.get('data', []))} items.")
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error generating plan: {str(e)}")
+            # Close progress dialog if it's still open
+            if progress_dialog:
+                try:
+                    progress_dialog.close()
+                    progress_dialog = None
+                except:
+                    pass
+            QMessageBox.critical(self, "Error", f"Error generating plan: {str(e)}\n\nPlease check your database connection and try again.")
     
-    def generate_type1_plan(self, params: dict):
+    def generate_type1_plan(self, session: Session, params: dict):
         """Generate Type 1 plan - undelivered items by customer, order, delivery date"""
         from models.database import Order, OrderItem, Customer, Item
         
-        # Debug: print all parameters
-        print(f"DEBUG: All parameters: {params}")
-        
-        # Build query
-        query = self.session.query(OrderItem).join(Order).join(Customer).join(Item)
-        
-        # Debug: print initial query
-        print(f"DEBUG: Initial query: {query}")
-        
-        # Apply filters
-        if params.get('customer_id'):
-            query = query.filter(Order.customer_id == params['customer_id'])
-            print(f"DEBUG: After customer filter: {query}")
-        
-        if params.get('order_id'):
-            query = query.filter(Order.id == params['order_id'])
-            print(f"DEBUG: After order filter: {query}")
-        
-        # Filter by delivery date (specific date)
-        if params.get('delivery_date'):
-            query = query.filter(OrderItem.delivery_date == params['delivery_date'])
-        
-        # Filter by delivery date month/year
-        delivery_months = params.get('delivery_months', [])
-        delivery_year = params.get('delivery_year')
-        if delivery_months and delivery_year:
-            start_month = min(delivery_months)
-            end_month = max(delivery_months)
-            start_date = date(delivery_year, start_month, 1)
-            if end_month == 12:
-                end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
-            else:
-                end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
-            query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
-        
-        # Filter for undelivered items
-        query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
-        
-        # Debug: let's see what the query looks like after undelivered filter
-        print(f"DEBUG: Query after undelivered filter: {query}")
-        
-        order_items = query.all()
-        
-        # Debug: print some sample created_at dates
-        print(f"DEBUG: Found {len(order_items)} items")
-        for i, item in enumerate(order_items[:3]):  # Show first 3 items
-            print(f"DEBUG: Item {i}: created_at = {item.created_at} (type: {type(item.created_at)})")
-        
-        # Format data
-        data = []
-        for item in order_items:
-            # Format delivery date for display
-            delivery_date_str = ''
-            if item.delivery_date:
-                delivery_date_str = item.delivery_date.strftime("%Y-%m-%d")
+        try:
+            # Debug: print all parameters
+
             
-            data.append({
-                'order': item.order.order_number,
-                'customer_item_name': item.item.customer_item_name or '',
-                'customer_item_code': item.item.customer_code,
-                'delivery_date': delivery_date_str,
-                'quantity': item.quantity - item.delivered_quantity,
-                'note': ''
-            })
+            # Build query
+            query = session.query(OrderItem).join(Order).join(Customer).join(Item)
         
-        # Format delivery period for header/filename
-        if delivery_months and delivery_year:
-            if len(delivery_months) == 1:
-                delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
+            # Debug: print initial query
+
+            
+            # Apply filters
+            if params.get('customer_id'):
+                query = query.filter(Order.customer_id == params['customer_id'])
+        
+            
+            if params.get('order_id'):
+                query = query.filter(Order.id == params['order_id'])
+        
+            
+            # Filter by delivery date (specific date)
+            if params.get('delivery_date'):
+                query = query.filter(OrderItem.delivery_date == params['delivery_date'])
+            
+            # Filter by delivery date month/year
+            delivery_months = params.get('delivery_months', [])
+            delivery_year = params.get('delivery_year')
+            if delivery_months and delivery_year:
+                start_month = min(delivery_months)
+                end_month = max(delivery_months)
+                start_date = date(delivery_year, start_month, 1)
+                if end_month == 12:
+                    end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
+                query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
+            
+            # Filter for undelivered items
+            query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
+            
+            # Debug: let's see what the query looks like after undelivered filter
+
+            
+            order_items = query.all()
+            
+            # Debug: print some sample created_at dates
+
+                    # Format data
+            data = []
+            for item in order_items:
+                # Format delivery date for display
+                delivery_date_str = ''
+                if item.delivery_date:
+                    delivery_date_str = item.delivery_date.strftime("%Y-%m-%d")
+                
+                data.append({
+                    'order': item.order.order_number,
+                    'customer_item_name': item.item.customer_item_name or '',
+                    'avz_name': item.item.product.name if item.item.product else '',
+                    'surface_treatment': item.surface_treatment or '',
+                    'customer_item_code': item.item.customer_code,
+                    'delivery_date': delivery_date_str,
+                    'quantity': item.quantity - item.delivered_quantity,
+                    'note': ''
+                })
+            
+            # Format delivery period for header/filename
+            if delivery_months and delivery_year:
+                if len(delivery_months) == 1:
+                    delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
+                else:
+                    delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
             else:
-                delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
-        else:
-            delivery_period = "all"
+                delivery_period = "all"
+            
+            # Get planned delivery date for header (most common delivery date)
+            planned_delivery_date = None
+            if order_items:
+                delivery_dates = [item.delivery_date for item in order_items if item.delivery_date]
+                if delivery_dates:
+                    # Get the most common delivery date
+                    from collections import Counter
+                    date_counts = Counter(delivery_dates)
+                    most_common_date = date_counts.most_common(1)[0][0]
+                    planned_delivery_date = most_common_date.strftime("%B %Y")  # e.g., "August 2025"
         
-        # Get planned delivery date for header (most common delivery date)
-        planned_delivery_date = None
-        if order_items:
-            delivery_dates = [item.delivery_date for item in order_items if item.delivery_date]
-            if delivery_dates:
-                # Get the most common delivery date
-                from collections import Counter
-                date_counts = Counter(delivery_dates)
-                most_common_date = date_counts.most_common(1)[0][0]
-                planned_delivery_date = most_common_date.strftime("%B %Y")  # e.g., "August 2025"
-        
-        return {
-            'type': 'type1',
-            'params': params,
-            'data': data,
-            'customer_name': order_items[0].order.customer.name_index if order_items else '',
-            'delivery_date': delivery_period,
-            'planned_delivery_date': planned_delivery_date,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+            return {
+                'type': 'type1',
+                'params': params,
+                'data': data,
+                'customer_name': order_items[0].order.customer.name_index if order_items else '',
+                'delivery_date': delivery_period,
+                'planned_delivery_date': planned_delivery_date,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except Exception as e:
+            # Log the error and re-raise with more context
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in generate_type1_plan: {str(e)}")
+            raise Exception(f"Failed to generate Type 1 plan: {str(e)}")
     
-    def generate_type2_plan(self, params: dict):
+    def generate_type2_plan(self, session: Session, params: dict):
         """Generate Type 2 plan - undelivered items by customer, order, delivery date, order date, product"""
         from models.database import Order, OrderItem, Customer, Item, Product
         
-        # Build query
-        query = self.session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
+        try:
+            # Build query
+            query = session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
         
-        # Apply filters
-        if params.get('customer_id'):
-            query = query.filter(Order.customer_id == params['customer_id'])
-        
-        if params.get('order_id'):
-            query = query.filter(Order.id == params['order_id'])
-        
-        if params.get('order_date'):
-            query = query.filter(Order.order_date == params['order_date'])
-        
-        if params.get('product_id'):
-            query = query.filter(Item.product_id == params['product_id'])
-        
-        # Filter by delivery date month/year
-        delivery_months = params.get('delivery_months', [])
-        delivery_year = params.get('delivery_year')
-        if delivery_months and delivery_year:
-            start_month = min(delivery_months)
-            end_month = max(delivery_months)
-            start_date = date(delivery_year, start_month, 1)
-            if end_month == 12:
-                end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
+            # Apply filters
+            customer_ids = params.get('customer_id')
+            if customer_ids:
+                if isinstance(customer_ids, list):
+                    # Multiple customers selected
+                    query = query.filter(Order.customer_id.in_(customer_ids))
+                else:
+                    # Single customer selected
+                    query = query.filter(Order.customer_id == customer_ids)
+            
+            if params.get('order_id'):
+                query = query.filter(Order.id == params['order_id'])
+            
+            if params.get('order_date'):
+                query = query.filter(Order.order_date == params['order_date'])
+            
+            if params.get('product_id'):
+                query = query.filter(Item.product_id == params['product_id'])
+            
+            # Filter by delivery date month/year
+            delivery_months = params.get('delivery_months', [])
+            delivery_year = params.get('delivery_year')
+            if delivery_months and delivery_year:
+                start_month = min(delivery_months)
+                end_month = max(delivery_months)
+                start_date = date(delivery_year, start_month, 1)
+                if end_month == 12:
+                    end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
+                query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
+            
+            # Filter for undelivered items
+            query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
+            
+            order_items = query.all()
+            
+            # Format data
+            data = []
+            for item in order_items:
+                data.append({
+                    'customer_name': item.order.customer.name_index,
+                    'order': item.order.order_number,
+                    'customer_item_name': item.item.customer_item_name or '',
+                    'avz_name': item.item.product.name if item.item.product else '',
+                    'surface_treatment': item.surface_treatment or '',
+                    'customer_item_code': item.item.customer_code,
+                    'delivery_date': item.delivery_date.strftime("%Y-%m-%d"),
+                    'quantity': item.quantity - item.delivered_quantity,
+                    'note': ''
+                })
+            
+            # Format delivery period for header/filename
+            if delivery_months and delivery_year:
+                if len(delivery_months) == 1:
+                    delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
+                else:
+                    delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
             else:
-                end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
-            query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
-        
-        # Filter for undelivered items
-        query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
-        
-        order_items = query.all()
-        
-        # Format data
-        data = []
-        for item in order_items:
-            data.append({
-                'customer_name': item.order.customer.name_index,
-                'order': item.order.order_number,
-                'customer_item_name': item.item.customer_item_name or '',
-                'customer_item_code': item.item.customer_code,
-                'delivery_date': item.delivery_date.strftime("%Y-%m-%d"),
-                'quantity': item.quantity - item.delivered_quantity,
-                'note': ''
-            })
-        
-        # Format delivery period for header/filename
-        if delivery_months and delivery_year:
-            if len(delivery_months) == 1:
-                delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
-            else:
-                delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
-        else:
-            delivery_period = "all"
-        
-        return {
-            'type': 'type2',
-            'params': params,
-            'data': data,
-            'customer_name': order_items[0].order.customer.name_index if order_items else '',
-            'delivery_date': delivery_period,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+                delivery_period = "all"
+            
+            return {
+                'type': 'type2',
+                'params': params,
+                'data': data,
+                'customer_name': order_items[0].order.customer.name_index if order_items else '',
+                'delivery_date': delivery_period,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except Exception as e:
+            # Log the error and re-raise with more context
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in generate_type2_plan: {str(e)}")
+            raise Exception(f"Failed to generate Type 2 plan: {str(e)}")
     
-    def generate_type3_plan(self, params: dict):
+    def generate_type3_plan(self, session: Session, params: dict):
         """Generate Type 3 plan - production summary by product, month, surface treatment"""
         from models.database import Order, OrderItem, Customer, Item, Product
         
-        # Build query
-        query = self.session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
+        try:
+            # Build query
+            query = session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
         
-        # Apply filters
-        if params.get('customer_id'):
-            query = query.filter(Order.customer_id == params['customer_id'])
+            # Apply filters
+            if params.get('customer_id'):
+                query = query.filter(Order.customer_id == params['customer_id'])
+            
+            if params.get('surface_treatment'):
+                query = query.filter(OrderItem.surface_treatment == params['surface_treatment'])
+            
+            # Filter by delivery date month/year
+            delivery_months = params.get('delivery_months', [])
+            delivery_year = params.get('delivery_year')
+            if delivery_months and delivery_year:
+                start_month = min(delivery_months)
+                end_month = max(delivery_months)
+                start_date = date(delivery_year, start_month, 1)
+                if end_month == 12:
+                    end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
+                query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
+            
+            # Filter for undelivered items
+            query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
+            
+            order_items = query.all()
         
-        if params.get('surface_treatment'):
-            query = query.filter(OrderItem.surface_treatment == params['surface_treatment'])
-        
-        # Filter by delivery date month/year
-        delivery_months = params.get('delivery_months', [])
-        delivery_year = params.get('delivery_year')
-        if delivery_months and delivery_year:
-            start_month = min(delivery_months)
-            end_month = max(delivery_months)
-            start_date = date(delivery_year, start_month, 1)
-            if end_month == 12:
-                end_date = date(delivery_year + 1, 1, 1) - timedelta(days=1)
+            # Group by product, month, and surface treatment
+            product_data = {}
+            month_names = {
+                1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+                7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+            }
+            
+            # Track monthly totals for subtotals
+            monthly_totals = {}
+            
+            for item in order_items:
+                product_name = item.item.product.name
+                surface_treatment = item.surface_treatment or 'KATAFOREZA'
+                quantity = item.quantity - item.delivered_quantity
+                
+                # Get delivery month
+                delivery_month = item.delivery_date.month if item.delivery_date else None
+                month_name = month_names.get(delivery_month, 'Unknown') if delivery_month else 'Unknown'
+                
+                if product_name not in product_data:
+                    product_data[product_name] = {}
+                
+                # Create column key: "KATAFOREZA Aug", "FOSFAT Sep", etc.
+                column_key = f"{surface_treatment} {month_name}"
+                
+                if column_key not in product_data[product_name]:
+                    product_data[product_name][column_key] = 0
+                
+                product_data[product_name][column_key] += quantity
+                
+                # Track monthly totals
+                if month_name not in monthly_totals:
+                    monthly_totals[month_name] = 0
+                monthly_totals[month_name] += quantity
+            
+            # Ensure we have monthly totals even if no data was found
+            if not monthly_totals and product_data:
+                # If no monthly totals but we have product data, calculate from product data
+                for product_treatments in product_data.values():
+                    for column_key, quantity in product_treatments.items():
+                        # Extract month from column key (e.g., "KATAFOREZA Aug" -> "Aug")
+                        parts = column_key.split()
+                        if len(parts) >= 2:
+                            month_name = parts[-1]  # Last part is the month
+                            if month_name not in monthly_totals:
+                                monthly_totals[month_name] = 0
+                            monthly_totals[month_name] += quantity
+            
+            # Add TOTAL columns for each month to each product
+            for product_name in product_data:
+                for month_name in monthly_totals:
+                    total_column_key = f"TOTAL {month_name}"
+                    # Calculate total for this product in this month
+                    product_month_total = 0
+                    for column_key, quantity in product_data[product_name].items():
+                        if month_name in column_key:
+                            product_month_total += quantity
+                    product_data[product_name][total_column_key] = product_month_total
+            
+            # Format delivery period for header/filename
+            if delivery_months and delivery_year:
+                if len(delivery_months) == 1:
+                    delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
+                else:
+                    delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
             else:
-                end_date = date(delivery_year, end_month + 1, 1) - timedelta(days=1)
-            query = query.filter(OrderItem.delivery_date >= start_date, OrderItem.delivery_date <= end_date)
+                delivery_period = "all"
         
-        # Filter for undelivered items
-        query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
-        
-        order_items = query.all()
-        
-        # Group by product, month, and surface treatment
-        product_data = {}
-        month_names = {
-            1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
-            7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
-        }
-        
-        # Track monthly totals for subtotals
-        monthly_totals = {}
-        
-        for item in order_items:
-            product_name = item.item.product.name
-            surface_treatment = item.surface_treatment or 'KATAFOREZA'
-            quantity = item.quantity - item.delivered_quantity
-            
-            # Get delivery month
-            delivery_month = item.delivery_date.month if item.delivery_date else None
-            month_name = month_names.get(delivery_month, 'Unknown') if delivery_month else 'Unknown'
-            
-            if product_name not in product_data:
-                product_data[product_name] = {}
-            
-            # Create column key: "KATAFOREZA Aug", "FOSFAT Sep", etc.
-            column_key = f"{surface_treatment} {month_name}"
-            
-            if column_key not in product_data[product_name]:
-                product_data[product_name][column_key] = 0
-            
-            product_data[product_name][column_key] += quantity
-            
-            # Track monthly totals
-            if month_name not in monthly_totals:
-                monthly_totals[month_name] = 0
-            monthly_totals[month_name] += quantity
-        
-        # Ensure we have monthly totals even if no data was found
-        if not monthly_totals and product_data:
-            # If no monthly totals but we have product data, calculate from product data
-            for product_treatments in product_data.values():
-                for column_key, quantity in product_treatments.items():
-                    # Extract month from column key (e.g., "KATAFOREZA Aug" -> "Aug")
-                    parts = column_key.split()
-                    if len(parts) >= 2:
-                        month_name = parts[-1]  # Last part is the month
-                        if month_name not in monthly_totals:
-                            monthly_totals[month_name] = 0
-                        monthly_totals[month_name] += quantity
-        
-        # Add TOTAL columns for each month to each product
-        for product_name in product_data:
-            for month_name in monthly_totals:
-                total_column_key = f"TOTAL {month_name}"
-                # Calculate total for this product in this month
-                product_month_total = 0
-                for column_key, quantity in product_data[product_name].items():
-                    if month_name in column_key:
-                        product_month_total += quantity
-                product_data[product_name][total_column_key] = product_month_total
-        
-        # Format delivery period for header/filename
-        if delivery_months and delivery_year:
-            if len(delivery_months) == 1:
-                delivery_period = f"{delivery_months[0]:02d}-{delivery_year}"
-            else:
-                delivery_period = f"{min(delivery_months):02d}-{max(delivery_months):02d}-{delivery_year}"
-        else:
-            delivery_period = "all"
-        
-        return {
-            'type': 'type3',
-            'params': params,
-            'data': product_data,
-            'monthly_totals': monthly_totals,
-            'customer_name': order_items[0].order.customer.name_index if order_items else '',
-            'delivery_date': delivery_period,
-            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
+            return {
+                'type': 'type3',
+                'params': params,
+                'data': product_data,
+                'monthly_totals': monthly_totals,
+                'customer_name': order_items[0].order.customer.name_index if order_items else '',
+                'delivery_date': delivery_period,
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+        except Exception as e:
+            # Log the error and re-raise with more context
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in generate_type3_plan: {str(e)}")
+            raise Exception(f"Failed to generate Type 3 plan: {str(e)}")
     
     def populate_table(self, plan_type: str, data: dict):
         """Populate the table with plan data"""
@@ -671,36 +840,46 @@ class ProductionPlansTab(QWidget):
                 if plan_type == 'type1':
                     self.table.setItem(row, 0, QTableWidgetItem(item['order']))
                     self.table.setItem(row, 1, QTableWidgetItem(item['customer_item_name']))
-                    self.table.setItem(row, 2, QTableWidgetItem(item['customer_item_code']))
-                    self.table.setItem(row, 3, QTableWidgetItem(item['delivery_date']))
-                    self.table.setItem(row, 4, QTableWidgetItem(str(item['quantity'])))
-                    self.table.setItem(row, 5, QTableWidgetItem(item['note']))
+                    self.table.setItem(row, 2, QTableWidgetItem(item['avz_name']))
+                    self.table.setItem(row, 3, QTableWidgetItem(item['surface_treatment']))
+                    self.table.setItem(row, 4, QTableWidgetItem(item['customer_item_code']))
+                    self.table.setItem(row, 5, QTableWidgetItem(item['delivery_date']))
+                    self.table.setItem(row, 6, QTableWidgetItem(str(item['quantity'])))
+                    self.table.setItem(row, 7, QTableWidgetItem(item['note']))
                 else:  # type2
                     self.table.setItem(row, 0, QTableWidgetItem(item['customer_name']))
                     self.table.setItem(row, 1, QTableWidgetItem(item['order']))
                     self.table.setItem(row, 2, QTableWidgetItem(item['customer_item_name']))
-                    self.table.setItem(row, 3, QTableWidgetItem(item['customer_item_code']))
-                    self.table.setItem(row, 4, QTableWidgetItem(item['delivery_date']))
-                    self.table.setItem(row, 5, QTableWidgetItem(str(item['quantity'])))
-                    self.table.setItem(row, 6, QTableWidgetItem(item['note']))
+                    self.table.setItem(row, 3, QTableWidgetItem(item['avz_name']))
+                    self.table.setItem(row, 4, QTableWidgetItem(item['surface_treatment']))
+                    self.table.setItem(row, 5, QTableWidgetItem(item['customer_item_code']))
+                    self.table.setItem(row, 6, QTableWidgetItem(item['delivery_date']))
+                    self.table.setItem(row, 7, QTableWidgetItem(str(item['quantity'])))
+                    self.table.setItem(row, 8, QTableWidgetItem(item['note']))
         
         elif plan_type == 'type3':
             self.setup_type3_table()
             product_data = data.get('data', {})
-            products = list(product_data.keys())
+            items = list(product_data.keys())
             
             # Get all column keys and sort them by month, then by treatment type
             all_columns = set()
             for product_data_dict in product_data.values():
                 all_columns.update(product_data_dict.keys())
             
-            # Sort columns by month first, then by treatment type
+            # Sort columns by month first (calendar order), then by treatment type
             def sort_columns(column_key):
                 # Extract month and treatment from column key
                 parts = column_key.split()
                 if len(parts) >= 2:
                     treatment = ' '.join(parts[:-1])  # Everything except last part
                     month = parts[-1]  # Last part is month
+                    
+                    # Define month order (calendar order)
+                    month_order = {
+                        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                    }
                     
                     # Define treatment order
                     treatment_order = {
@@ -710,21 +889,23 @@ class ProductionPlansTab(QWidget):
                         'TOTAL': 4
                     }
                     
+                    # Get month priority (default to 999 for unknown months)
+                    month_priority = month_order.get(month, 999)
                     # Get treatment priority (default to 999 for unknown treatments)
                     treatment_priority = treatment_order.get(treatment, 999)
                     
-                    # Return tuple for sorting: (month, treatment_priority, column_key)
-                    return (month, treatment_priority, column_key)
+                    # Return tuple for sorting: (month_priority, treatment_priority, column_key)
+                    return (month_priority, treatment_priority, column_key)
                 else:
-                    return (column_key, 999, column_key)
+                    return (999, 999, column_key)
             
             all_columns = sorted(list(all_columns), key=sort_columns)
             
             # Set up table
-            self.table.setRowCount(len(products))
+            self.table.setRowCount(len(items))
             
             # Set up columns
-            self.table.setColumnCount(1 + len(all_columns) + 1)  # Product + all columns + total
+            self.table.setColumnCount(1 + len(all_columns) + 1)  # Item Code + all columns + total
             headers = ["Product"] + all_columns + ["Total"]
             self.table.setHorizontalHeaderLabels(headers)
             
@@ -737,25 +918,27 @@ class ProductionPlansTab(QWidget):
                 elif header_text == "Total":
                     header_item.setBackground(QBrush(QColor(100, 149, 237)))  # Darker blue
             
-            # Populate product rows
-            for row, product in enumerate(products):
-                self.table.setItem(row, 0, QTableWidgetItem(product))
+            # Populate item rows
+            for row, product_name in enumerate(items):
+                self.table.setItem(row, 0, QTableWidgetItem(product_name))
                 
-                total = 0
+                # Calculate grand total by summing only the TOTAL columns for each month
+                grand_total = 0
                 for col, column_key in enumerate(all_columns, 1):
-                    quantity = product_data[product].get(column_key, 0)
+                    quantity = product_data[product_name].get(column_key, 0)
                     item = QTableWidgetItem(str(quantity))
                     
                     # Set background color for TOTAL columns (light blue)
                     if column_key.startswith('TOTAL'):
                         from PyQt6.QtGui import QColor, QBrush
                         item.setBackground(QBrush(QColor(173, 216, 230)))  # Light blue
+                        # Add to grand total only if it's a TOTAL column
+                        grand_total += quantity
                     
                     self.table.setItem(row, col, item)
-                    total += quantity
                 
                 # Set background color for the final Total column (darker blue)
-                total_item = QTableWidgetItem(str(total))
+                total_item = QTableWidgetItem(str(grand_total))
                 from PyQt6.QtGui import QColor, QBrush
                 total_item.setBackground(QBrush(QColor(100, 149, 237)))  # Darker blue
                 self.table.setItem(row, len(all_columns) + 1, total_item)
@@ -763,7 +946,7 @@ class ProductionPlansTab(QWidget):
         # For Type 2, highlight first occurrence of each customer in the table
         if plan_type == 'type2':
             from PyQt6.QtGui import QColor, QBrush
-            print(f"DEBUG: Starting highlighting for Type 2 plan with {self.table.rowCount()} rows")
+    
             seen_customers = set()
             rows_to_highlight = []
             
@@ -772,9 +955,9 @@ class ProductionPlansTab(QWidget):
                 customer_item = self.table.item(row, 0)  # Customer is in first column
                 if customer_item:
                     customer_name = customer_item.text()
-                    print(f"DEBUG: Row {row}, Customer: {customer_name}")
+            
                     if customer_name and customer_name not in seen_customers:
-                        print(f"DEBUG: First occurrence of {customer_name} at row {row}")
+
                         # Highlight the row AFTER the first occurrence (row + 1)
                         if row < self.table.rowCount() - 1:
                             rows_to_highlight.append(row + 1)
@@ -808,14 +991,14 @@ class ProductionPlansTab(QWidget):
     def setup_type1_2_table(self):
         """Setup table for type 1 and 2 plans"""
         if self.plan_type_1.isChecked():
-            self.table.setColumnCount(6)
+            self.table.setColumnCount(8)
             self.table.setHorizontalHeaderLabels([
-                "Order", "Customer Item Name", "Customer Item Code", "Delivery Date", "Quantity", "Note"
+                "Order", "Customer Item Name", "AVZ Name", "Surface Treatment", "Customer Item Code", "Delivery Date", "Quantity", "Note"
             ])
         else:  # type2
-            self.table.setColumnCount(7)
+            self.table.setColumnCount(9)
             self.table.setHorizontalHeaderLabels([
-                "Customer", "Order", "Customer Item Name", "Customer Item Code", "Delivery Date", "Quantity", "Note"
+                "Customer", "Order", "Customer Item Name", "AVZ Name", "Surface Treatment", "Customer Item Code", "Delivery Date", "Quantity", "Note"
             ])
     
     def setup_type3_table(self):
@@ -867,13 +1050,19 @@ class ProductionPlansTab(QWidget):
                 for product, treatments in product_data.items():
                     all_columns.update(treatments.keys())
                 
-                # Sort columns by month first, then by treatment type
+                # Sort columns by month first (calendar order), then by treatment type
                 def sort_columns(column_key):
                     # Extract month and treatment from column key
                     parts = column_key.split()
                     if len(parts) >= 2:
                         treatment = ' '.join(parts[:-1])  # Everything except last part
                         month = parts[-1]  # Last part is month
+                        
+                        # Define month order (calendar order)
+                        month_order = {
+                            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                        }
                         
                         # Define treatment order
                         treatment_order = {
@@ -883,13 +1072,15 @@ class ProductionPlansTab(QWidget):
                             'TOTAL': 4
                         }
                         
+                        # Get month priority (default to 999 for unknown months)
+                        month_priority = month_order.get(month, 999)
                         # Get treatment priority (default to 999 for unknown treatments)
                         treatment_priority = treatment_order.get(treatment, 999)
                         
-                        # Return tuple for sorting: (month, treatment_priority, column_key)
-                        return (month, treatment_priority, column_key)
+                        # Return tuple for sorting: (month_priority, treatment_priority, column_key)
+                        return (month_priority, treatment_priority, column_key)
                     else:
-                        return (column_key, 999, column_key)
+                        return (999, 999, column_key)
                 
                 all_columns = sorted(list(all_columns), key=sort_columns)
                 
@@ -900,7 +1091,9 @@ class ProductionPlansTab(QWidget):
                     for column_key in all_columns:
                         quantity = treatments.get(column_key, 0)
                         row[column_key] = quantity
-                        total += quantity
+                        # Only add to total if it's a TOTAL column (subtotal)
+                        if column_key.startswith('TOTAL'):
+                            total += quantity
                     row['Total'] = total
                     rows.append(row)
                 

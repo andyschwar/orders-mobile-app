@@ -69,6 +69,21 @@ class PermissionsDialog(QDialog):
         self.module_scroll.setWidgetResizable(True)
         left_layout.addWidget(self.module_scroll)
         
+        # Middle - Tab Access
+        middle_widget = QWidget()
+        middle_layout = QVBoxLayout(middle_widget)
+        
+        middle_title = QLabel("Tab Access")
+        middle_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        middle_layout.addWidget(middle_title)
+        
+        self.tab_scroll = QScrollArea()
+        self.tab_widget = QWidget()
+        self.tab_layout = QVBoxLayout(self.tab_widget)
+        self.tab_scroll.setWidget(self.tab_widget)
+        self.tab_scroll.setWidgetResizable(True)
+        middle_layout.addWidget(self.tab_scroll)
+        
         # Right side - Column permissions
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
@@ -85,8 +100,9 @@ class PermissionsDialog(QDialog):
         right_layout.addWidget(self.column_scroll)
         
         main_splitter.addWidget(left_widget)
+        main_splitter.addWidget(middle_widget)
         main_splitter.addWidget(right_widget)
-        main_splitter.setSizes([600, 600])
+        main_splitter.setSizes([400, 400, 400])
         layout.addWidget(main_splitter)
         
         # Buttons
@@ -156,6 +172,7 @@ class PermissionsDialog(QDialog):
         """Handle role selection change"""
         self.current_role = role_name
         self.update_module_permissions()
+        self.update_tab_permissions()
         self.update_column_permissions()
         
     def update_module_permissions(self):
@@ -239,6 +256,69 @@ class PermissionsDialog(QDialog):
                 layout.addWidget(checkbox)
                 
         return group
+        
+    def update_tab_permissions(self):
+        """Update the tab access display"""
+        # Clear existing widgets safely
+        while self.tab_layout.count():
+            item = self.tab_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+        
+        # Define all available tabs
+        tabs = [
+            ("customers", "Customers"),
+            ("products", "Products"),
+            ("items", "Items"),
+            ("orders", "Orders"),
+            ("order_items", "Order Items"),
+            ("employees", "Employees"),
+            ("labels", "Labels"),
+            ("label_logs", "Label Logs"),
+            ("production_plans", "Production Plans"),
+            ("reports", "Reports"),
+            ("components", "Components"),
+            ("materials", "Materials"),
+            ("stock", "Stock")
+        ]
+        
+        # Create tab access group
+        tab_group = QGroupBox("Tab Visibility")
+        tab_layout = QVBoxLayout(tab_group)
+        
+        # Get current tab access for this role
+        tab_access = self.permissions_data.get("tab_access", {})
+        
+        for tab_key, tab_name in tabs:
+            checkbox = QCheckBox(tab_name)
+            
+            # Check if this role has access to this tab
+            allowed_roles = tab_access.get(tab_key, [])
+            has_access = self.current_role in allowed_roles
+            checkbox.setChecked(has_access)
+            
+            # Connect checkbox to update function
+            checkbox.toggled.connect(lambda checked, t=tab_key: self.update_tab_access(t, checked))
+            tab_layout.addWidget(checkbox)
+        
+        self.tab_layout.addWidget(tab_group)
+        self.tab_layout.addStretch()
+        
+    def update_tab_access(self, tab_key: str, has_access: bool):
+        """Update tab access for current role"""
+        if "tab_access" not in self.permissions_data:
+            self.permissions_data["tab_access"] = {}
+        
+        tab_access = self.permissions_data["tab_access"]
+        if tab_key not in tab_access:
+            tab_access[tab_key] = []
+        
+        if has_access:
+            if self.current_role not in tab_access[tab_key]:
+                tab_access[tab_key].append(self.current_role)
+        else:
+            if self.current_role in tab_access[tab_key]:
+                tab_access[tab_key].remove(self.current_role)
         
     def update_column_permissions(self):
         """Update the column permissions display"""

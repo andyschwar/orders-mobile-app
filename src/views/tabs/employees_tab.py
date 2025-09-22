@@ -371,7 +371,7 @@ class EmployeeDialog(QDialog):
             "documents_path": self.documents_path_input.text().strip() or None
         }
         
-        print(f"Debug - Employee data being saved: {data}")  # Debug print
+
         return data
 
 class EmployeesTab(QWidget):
@@ -625,7 +625,7 @@ class EmployeesTab(QWidget):
             return False
             
         except Exception as e:
-            print(f"Debug - Error in should_highlight: {str(e)}")
+    
             return False
     
     def highlight_row(self, row, color):
@@ -806,7 +806,7 @@ class EmployeesTab(QWidget):
                                     try:
                                         birthday_str = emp.birthday.strftime("%Y-%m-%d")
                                     except Exception as e:
-                                        print(f"Debug - Error formatting birthday: {str(e)}")
+                                        pass
                                 self.table.setItem(i, col_index, QTableWidgetItem(birthday_str))
                             elif col == "name_day":
                                 name_day_str = ""
@@ -815,7 +815,7 @@ class EmployeesTab(QWidget):
                                         month, day = map(int, emp.name_day.split('-'))
                                         name_day_str = f"{day:02d}-{month:02d}"
                                     except Exception as e:
-                                        print(f"Debug - Error formatting name day: {str(e)}")
+                                        pass
                                 self.table.setItem(i, col_index, QTableWidgetItem(name_day_str))
                             col_index += 1
                         

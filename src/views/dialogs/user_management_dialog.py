@@ -7,6 +7,7 @@ from PyQt6.QtGui import QFont, QIcon
 from sqlalchemy.orm import Session
 from src.models.database import User, UserRole
 from src.utils.auth import get_role_display_name, hash_password, generate_password
+from functools import partial
 
 class UserManagementDialog(QDialog):
     """Dialog for managing users and their email addresses"""
@@ -20,7 +21,7 @@ class UserManagementDialog(QDialog):
         
     def init_ui(self):
         self.setWindowTitle("User Management")
-        self.setFixedSize(800, 600)
+        self.setFixedSize(800, 700)
         self.setModal(True)
         
         # Set window icon if available
@@ -56,6 +57,9 @@ class UserManagementDialog(QDialog):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)          # Email
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)  # Status
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # Actions
+        
+        # Set row height to make buttons more readable
+        self.user_table.verticalHeader().setDefaultSectionSize(40)
         
         layout.addWidget(self.user_table)
         
@@ -179,36 +183,196 @@ class UserManagementDialog(QDialog):
             # Actions
             actions_widget = QWidget()
             actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(0, 0, 0, 0)
+            actions_layout.setContentsMargins(5, 5, 5, 5)
+            actions_layout.setSpacing(5)
             
             update_button = QPushButton("Update")
-            update_button.clicked.connect(lambda checked, r=row: self.update_user(r))
+            update_button.setMinimumHeight(25)
+            update_button.clicked.connect(partial(self.update_user, row))
             actions_layout.addWidget(update_button)
+            
+            # Add show password button
+            show_password_button = QPushButton("Show Password")
+            show_password_button.setMinimumHeight(25)
+            show_password_button.clicked.connect(partial(self.show_password, row))
+            actions_layout.addWidget(show_password_button)
+            
+            # Add reset password button
+            reset_password_button = QPushButton("Reset Password")
+            reset_password_button.setMinimumHeight(25)
+            reset_password_button.clicked.connect(partial(self.reset_password, row))
+            actions_layout.addWidget(reset_password_button)
             
             # Add delete button only for admins
             if hasattr(self, 'current_user') and self.current_user and self.current_user.role.value == 'admin':
                 delete_button = QPushButton("Delete")
-                delete_button.clicked.connect(lambda checked, r=row: self.delete_user(r))
+                delete_button.setMinimumHeight(25)
+                delete_button.clicked.connect(partial(self.delete_user, row))
                 actions_layout.addWidget(delete_button)
             
             self.user_table.setCellWidget(row, 4, actions_widget)
     
     def update_user(self, row):
         """Update user email address"""
-        username = self.user_table.item(row, 0).text()
-        email = self.user_table.item(row, 2).text().strip()
-        
-        user = self.session.query(User).filter(User.username == username).first()
-        if not user:
-            QMessageBox.critical(self, "Error", "User not found.")
-            return
-        
-        # Update email
-        user.email = email if email else None
-        self.session.commit()
-        
-        QMessageBox.information(self, "Success", f"Email updated for user '{username}'")
-        self.user_updated.emit()
+        try:
+            # Check if dialog is still valid
+            if not self.isVisible():
+                return
+                
+            username = self.user_table.item(row, 0).text()
+            email = self.user_table.item(row, 2).text().strip()
+            
+            user = self.session.query(User).filter(User.username == username).first()
+            if not user:
+                QMessageBox.critical(self, "Error", "User not found.")
+                return
+            
+            # Validate email format if provided
+            if email and '@' not in email:
+                QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
+                return
+            
+            # Check if email is already used by another user
+            if email:
+                existing_user = self.session.query(User).filter(
+                    User.email == email,
+                    User.id != user.id
+                ).first()
+                if existing_user:
+                    QMessageBox.warning(
+                        self, 
+                        "Duplicate Email", 
+                        f"Email '{email}' is already assigned to user '{existing_user.username}'. "
+                        "Please use a different email address."
+                    )
+                    return
+            
+            # Update email
+            user.email = email if email else None
+            
+            self.session.commit()
+            
+            QMessageBox.information(self, "Success", f"Email updated for user '{username}'")
+            self.user_updated.emit()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error updating user: {str(e)}")
+            try:
+                self.session.rollback()
+            except:
+                pass
+    
+    def reset_password(self, row):
+        """Reset user password"""
+        try:
+            # Check if dialog is still valid
+            if not self.isVisible():
+                return
+                
+            username = self.user_table.item(row, 0).text()
+            
+            # Check if trying to reset own password
+            if hasattr(self, 'current_user') and self.current_user and username == self.current_user.username:
+                QMessageBox.warning(self, "Error", "You cannot reset your own password from this dialog.")
+                return
+            
+            user = self.session.query(User).filter(User.username == username).first()
+            if not user:
+                QMessageBox.critical(self, "Error", "User not found.")
+                return
+            
+            # Confirm password reset
+            reply = QMessageBox.question(
+                self, 
+                "Confirm Password Reset", 
+                f"Are you sure you want to reset the password for user '{username}'?\n\n"
+                f"A new temporary password will be generated and shown to you.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                # Generate new temporary password
+                new_password = generate_password()
+                user.password_hash = hash_password(new_password)
+                
+                self.session.commit()
+                
+                # Show the new password
+                QMessageBox.information(
+                    self, 
+                    "Password Reset", 
+                    f"Password has been reset for user '{username}'.\n\n"
+                    f"New temporary password: {new_password}\n\n"
+                    f"Please inform the user of their new password."
+                )
+                
+                # Send email notification if user has email
+                if user.email:
+                    try:
+                        from src.utils.email_utils import get_email_sender
+                        email_sender = get_email_sender()
+                        email_sender.send_password_reset_email(user, new_password)
+                        QMessageBox.information(
+                            self,
+                            "Email Sent",
+                            f"Password reset notification has been sent to {user.email}"
+                        )
+                    except Exception as e:
+                        QMessageBox.warning(
+                            self,
+                            "Email Error",
+                            f"Could not send password reset email: {str(e)}\n\n"
+                            f"Please manually inform the user of their new password."
+                        )
+                
+                self.user_updated.emit()
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error resetting password: {str(e)}")
+            try:
+                self.session.rollback()
+            except:
+                pass
+    
+    def show_password(self, row):
+        """Show current password for user"""
+        try:
+            # Check if dialog is still valid
+            if not self.isVisible():
+                return
+                
+            username = self.user_table.item(row, 0).text()
+            
+            user = self.session.query(User).filter(User.username == username).first()
+            if not user:
+                QMessageBox.critical(self, "Error", "User not found.")
+                return
+            
+            # Get password reminder manager
+            from src.utils.email_utils import get_password_reminder_manager
+            pm = get_password_reminder_manager(self.session)
+            
+            # Try to get current password
+            current_password = pm._get_current_password(user)
+            
+            if current_password:
+                QMessageBox.information(
+                    self, 
+                    "Current Password", 
+                    f"Current password for user '{username}':\n\n{current_password}"
+                )
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Password Not Available", 
+                    f"Cannot retrieve the current password for user '{username}'.\n\n"
+                    f"This is only available for default system users (admin, manager, user, viewer).\n\n"
+                    f"For custom users, you can use the 'Reset Password' feature instead."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error retrieving password: {str(e)}")
     
     def delete_user(self, row):
         """Delete a user (admin only)"""
@@ -259,6 +423,18 @@ class UserManagementDialog(QDialog):
         if existing_user:
             QMessageBox.warning(self, "Error", f"User '{username}' already exists.")
             return
+        
+        # Check if email is already used by another user
+        if email:
+            existing_email_user = self.session.query(User).filter(User.email == email).first()
+            if existing_email_user:
+                QMessageBox.warning(
+                    self, 
+                    "Duplicate Email", 
+                    f"Email '{email}' is already assigned to user '{existing_email_user.username}'. "
+                    "Please use a different email address."
+                )
+                return
         
         # Check permissions for role assignment
         from src.utils.permissions import get_permissions_manager
@@ -326,4 +502,13 @@ class UserManagementDialog(QDialog):
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error creating user: {str(e)}")
-            self.session.rollback() 
+            self.session.rollback()
+    
+    def closeEvent(self, event):
+        """Handle dialog close event"""
+        try:
+            # Disconnect signals to prevent crashes
+            self.user_updated.disconnect()
+        except:
+            pass
+        super().closeEvent(event)

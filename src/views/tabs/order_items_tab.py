@@ -327,6 +327,8 @@ class OrderItemsTab(QWidget):
         self.session = session
         self.user = user
         self.items = []
+        from utils.permissions import get_permissions_manager
+        self.permissions_manager = get_permissions_manager()
         self.setup_ui()
         self.refresh_data()  # Initial load
         
@@ -348,6 +350,9 @@ class OrderItemsTab(QWidget):
         # Add Edit button
         edit_button = QPushButton("Edit Item")
         edit_button.clicked.connect(self.edit_selected_item)
+        # Disable for user and viewer accounts
+        if self.user and not self.permissions_manager.has_permission(self.user, "orders", "edit"):
+            edit_button.setEnabled(False)
         toolbar.addWidget(edit_button)
         
         refresh_button = QPushButton("Refresh")
@@ -482,7 +487,7 @@ class OrderItemsTab(QWidget):
         
         # Set up columns based on permissions
         if self.can_see_prices:
-            self.table.setColumnCount(12)
+            self.table.setColumnCount(13)
             self.table.setHorizontalHeaderLabels([
                 "Select",
                 "Customer",
@@ -495,7 +500,8 @@ class OrderItemsTab(QWidget):
                 "Remaining",
                 "Delivery Date",
                 "Last Delivery",
-                "Price"
+                "Price",
+                "Note"
             ])
             
             # Set column widths
@@ -511,8 +517,9 @@ class OrderItemsTab(QWidget):
             self.table.setColumnWidth(9, 100)  # Delivery Date
             self.table.setColumnWidth(10, 100) # Last Delivery
             self.table.setColumnWidth(11, 80)  # Price
+            self.table.setColumnWidth(12, 150) # Note
         else:
-            self.table.setColumnCount(11)
+            self.table.setColumnCount(12)
             self.table.setHorizontalHeaderLabels([
                 "Select",
                 "Customer",
@@ -524,7 +531,8 @@ class OrderItemsTab(QWidget):
                 "Delivered",
                 "Remaining",
                 "Delivery Date",
-                "Last Delivery"
+                "Last Delivery",
+                "Note"
             ])
             
             # Set column widths
@@ -539,6 +547,7 @@ class OrderItemsTab(QWidget):
             self.table.setColumnWidth(8, 80)   # Remaining
             self.table.setColumnWidth(9, 100)  # Delivery Date
             self.table.setColumnWidth(10, 100) # Last Delivery
+            self.table.setColumnWidth(11, 150) # Note
         
         # Disable row selection mode since we're using checkboxes
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -587,6 +596,13 @@ class OrderItemsTab(QWidget):
                 price = QTableWidgetItem(f"{item.price:.2f}" if item.price else "")
                 price.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(i, 11, price)
+                # Add notes column (index 12)
+                notes = QTableWidgetItem(item.notes or "")
+                self.table.setItem(i, 12, notes)
+            else:
+                # Add notes column (index 11) for users who can't see prices
+                notes = QTableWidgetItem(item.notes or "")
+                self.table.setItem(i, 11, notes)
     
     def refresh_data(self):
         try:
@@ -606,11 +622,11 @@ class OrderItemsTab(QWidget):
                 if hasattr(self, 'items') and row < len(self.items):
                     order_item = self.items[row]
                     selected_items.append(order_item)
-                    logger.debug(f"Selected item: {order_item.order.order_number} - {order_item.item.customer_code} - Qty: {order_item.quantity}, Delivered: {order_item.delivered_quantity}, Remaining: {order_item.quantity - order_item.delivered_quantity}")
+
                 else:
                     logger.warning(f"Could not find item for row {row}")
         
-        logger.debug(f"Total selected items: {len(selected_items)}")
+
         return selected_items
     
     def select_all(self):
@@ -788,18 +804,13 @@ class OrderItemsTab(QWidget):
             # Apply incomplete filter
             if self.show_incomplete.isChecked():
                 query = query.filter(OrderItem.quantity > OrderItem.delivered_quantity)
-                logger.debug("Applied 'Show Incomplete' filter - hiding fully delivered items")
             else:
-                logger.debug("'Show Incomplete' filter is OFF - showing all items")
+                pass
             
             # Order by delivery date descending
             order_items = query.order_by(OrderItem.delivery_date.desc()).all()
             
-            # Debug: Log some info about the results
-            logger.debug(f"Found {len(order_items)} order items after filtering")
-            if order_items:
-                for i, item in enumerate(order_items[:3]):  # Log first 3 items
-                    logger.debug(f"Item {i}: quantity={item.quantity}, delivered={item.delivered_quantity}, remaining={item.quantity - item.delivered_quantity}")
+
             
             # Update the table with filtered data
             self.populate_table(order_items)
@@ -842,6 +853,11 @@ class OrderItemsTab(QWidget):
 
     def edit_selected_item(self):
         """Edit the selected order item"""
+        # Check permissions for editing
+        if self.user and not self.permissions_manager.has_permission(self.user, "orders", "edit"):
+            QMessageBox.warning(self, "Permission Denied", "You don't have permission to edit order items.")
+            return
+            
         selected_items = self.get_selected_items()
         if not selected_items:
             QMessageBox.warning(self, "Warning", "Please select an item to edit")
@@ -861,16 +877,63 @@ class OrderItemsTab(QWidget):
         if column == 0: # Only edit if double-clicked on the checkbox column
             return
 
+        # Check permissions for editing
+        if self.user and not self.permissions_manager.has_permission(self.user, "orders", "edit"):
+            QMessageBox.warning(self, "Permission Denied", "You don't have permission to edit order items.")
+            return
+        
+        # Check if double-clicked on notes column
+        notes_column_index = 12 if self.can_see_prices else 11
+        if column == notes_column_index:
+            # Edit notes directly in the table
+            self.edit_notes_inline(row, column)
+            return
+
         order_item = self.items[row] # Get the order item from the populated list
         dialog = EditOrderItemDialog(self.session, order_item, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.refresh_data()
+    
+    def edit_notes_inline(self, row, column):
+        """Edit notes directly in the table"""
+        from PyQt6.QtWidgets import QInputDialog
+        
+        # Get current notes
+        current_notes = self.table.item(row, column).text() if self.table.item(row, column) else ""
+        
+        # Show input dialog for notes
+        notes, ok = QInputDialog.getMultiLineText(
+            self, 
+            "Edit Notes", 
+            "Enter notes for this order item:",
+            current_notes
+        )
+        
+        if ok:
+            # Update the table item
+            self.table.setItem(row, column, QTableWidgetItem(notes))
+            
+            # Update the database
+            try:
+                order_item = self.items[row]
+                order_item.notes = notes
+                self.session.commit()
+                QMessageBox.information(self, "Success", "Notes updated successfully!")
+            except Exception as e:
+                self.session.rollback()
+                QMessageBox.critical(self, "Error", f"Error updating notes: {str(e)}")
 
 class EditOrderItemDialog(QDialog):
     def __init__(self, session, order_item, parent=None):
         super().__init__(parent)
         self.session = session
-        self.order_item = order_item
+        # Re-query the order_item with its relationships to avoid detached instance error
+        from models.database import OrderItem, Item, Product, Order, Customer
+        from sqlalchemy.orm import joinedload
+        self.order_item = session.query(OrderItem).options(
+            joinedload(OrderItem.item).joinedload(Item.product),
+            joinedload(OrderItem.order).joinedload(Order.customer)
+        ).filter(OrderItem.id == order_item.id).first()
         self.setWindowTitle("Edit Order Item")
         self.setModal(True)
         self.init_ui()
@@ -895,16 +958,13 @@ class EditOrderItemDialog(QDialog):
         self.quantity_input.setValue(self.order_item.quantity)
         layout.addRow("Quantity:", self.quantity_input)
         
-        # Price (if user can see prices)
-        if hasattr(self.parent(), 'can_see_prices') and self.parent().can_see_prices:
-            self.price_input = QDoubleSpinBox()
-            self.price_input.setMinimum(0.0)
-            self.price_input.setMaximum(999999.99)
-            self.price_input.setDecimals(2)
-            self.price_input.setValue(self.order_item.price or 0.0)
-            layout.addRow("Price:", self.price_input)
-        else:
-            self.price_input = None
+        # Price (always show, but may be hidden from view in tables)
+        self.price_input = QDoubleSpinBox()
+        self.price_input.setMinimum(0.0)
+        self.price_input.setMaximum(999999.99)
+        self.price_input.setDecimals(2)
+        self.price_input.setValue(self.order_item.price or 0.0)
+        layout.addRow("Price:", self.price_input)
         
         # Delivery date
         self.delivery_date_input = QDateEdit()
@@ -914,12 +974,19 @@ class EditOrderItemDialog(QDialog):
         
         # Surface treatment
         self.surface_treatment_combo = QComboBox()
-        self.surface_treatment_combo.addItems(["KATAFOREZA", "FOSFAT", "ZINEK"])
+        self.surface_treatment_combo.addItems(["KATAFOREZA", "FOSFAT", "ZINEK", "NONE"])
         current_treatment = self.order_item.surface_treatment or "KATAFOREZA"
         index = self.surface_treatment_combo.findText(current_treatment)
         if index >= 0:
             self.surface_treatment_combo.setCurrentIndex(index)
         layout.addRow("Surface Treatment:", self.surface_treatment_combo)
+        
+        # Notes field
+        from PyQt6.QtWidgets import QTextEdit
+        self.notes_input = QTextEdit()
+        self.notes_input.setMaximumHeight(80)  # Limit height for notes
+        self.notes_input.setPlainText(self.order_item.notes or "")
+        layout.addRow("Notes:", self.notes_input)
         
         # Recalculate button
         recalc_button = QPushButton("Recalculate Surface Treatment")
@@ -936,23 +1003,35 @@ class EditOrderItemDialog(QDialog):
     
     def recalculate_surface_treatment(self):
         """Recalculate surface treatment based on business logic"""
-        calculated_treatment = self.order_item.calculate_surface_treatment()
-        index = self.surface_treatment_combo.findText(calculated_treatment)
-        if index >= 0:
-            self.surface_treatment_combo.setCurrentIndex(index)
-            QMessageBox.information(self, "Recalculated", f"Surface treatment recalculated to: {calculated_treatment}")
-        else:
-            QMessageBox.warning(self, "Error", f"Could not set calculated treatment: {calculated_treatment}")
+        # Ask user for confirmation before recalculating
+        reply = QMessageBox.question(
+            self, 
+            "Confirm Recalculation", 
+            "This will recalculate the surface treatment based on the item name and customer.\n\n"
+            "Any custom surface treatment value will be overwritten.\n\n"
+            "Do you want to continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            calculated_treatment = self.order_item.calculate_surface_treatment()
+            index = self.surface_treatment_combo.findText(calculated_treatment)
+            if index >= 0:
+                self.surface_treatment_combo.setCurrentIndex(index)
+                QMessageBox.information(self, "Recalculated", f"Surface treatment recalculated to: {calculated_treatment}")
+            else:
+                QMessageBox.warning(self, "Error", f"Could not set calculated treatment: {calculated_treatment}")
     
     def accept(self):
         """Save changes to the order item"""
         try:
             # Update order item
             self.order_item.quantity = self.quantity_input.value()
-            if self.price_input:
-                self.order_item.price = self.price_input.value()
+            self.order_item.price = self.price_input.value()
             self.order_item.delivery_date = self.delivery_date_input.date().toPyDate()
             self.order_item.surface_treatment = self.surface_treatment_combo.currentText()
+            self.order_item.notes = self.notes_input.toPlainText()
             
             # Commit changes
             self.session.commit()

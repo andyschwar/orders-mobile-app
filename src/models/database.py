@@ -196,6 +196,7 @@ class OrderItem(Base):
     delivered_quantity = Column(Integer, default=0)
     last_delivery_date = Column(Date)
     surface_treatment = Column(String(20))  # New column
+    notes = Column(Text)  # Notes field for each order item
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
@@ -203,6 +204,7 @@ class OrderItem(Base):
     item = relationship("Item", back_populates="order_items")
     deliveries = relationship("Delivery", back_populates="order_item", cascade="all, delete-orphan")
     delivery_terms = relationship("DeliveryTerm", back_populates="order_item", cascade="all, delete-orphan")
+    label_logs = relationship("LabelLog", back_populates="order_item", cascade="all, delete-orphan")
     
     def calculate_surface_treatment(self):
         """Calculate surface treatment based on item name and customer index"""
@@ -362,6 +364,7 @@ class Component(Base):
     
     product_components = relationship("ProductComponent", back_populates="component")
     stock = relationship("ComponentStock", back_populates="component", uselist=False)
+    materials = relationship("ComponentMaterial", back_populates="component")
     
     def calculate_total_unit_cost(self):
         """Calculate total unit cost as sum of all price components"""
@@ -418,6 +421,7 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
+    name = Column(String(100), nullable=True)
     password_hash = Column(String(255), nullable=False)
     email = Column(String(100), unique=True, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.VIEWER, nullable=False)
@@ -489,6 +493,71 @@ class User(Base):
         pm = get_permissions_manager()
         return pm.can_access_tab(self, tab_name)
 
+class Material(Base):
+    """Materials used in manufacturing"""
+    __tablename__ = 'materials'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    description = Column(Text)
+    unit_of_measure = Column(String(20), default='kg')  # kg, m, pcs, etc.
+    cost_per_unit = Column(Float, default=0.0)
+    currency = Column(String(3), default='EUR')
+    supplier = Column(String(100))
+    supplier_code = Column(String(50))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Additional columns that exist in the actual database
+    material_type = Column(String(50))
+    shape = Column(String(50))
+    size = Column(String(50))
+    length = Column(Float)
+    price_per_kg = Column(Float)
+    weight_per_meter = Column(Float)
+    notes = Column(Text)
+    
+    # Relationships
+    component_materials = relationship("ComponentMaterial", back_populates="material")
+    
+    def __repr__(self):
+        return f"<Material(name={self.name}, unit={self.unit_of_measure})>"
+    
+    def calculate_price_per_meter(self):
+        """Calculate price per meter based on material properties"""
+        # This method should calculate price per meter based on the material's properties
+        # For now, return a default calculation or use existing fields
+        if hasattr(self, 'price_per_kg') and hasattr(self, 'weight_per_meter'):
+            # If we have price per kg and weight per meter, calculate price per meter
+            if self.price_per_kg and self.weight_per_meter:
+                return self.price_per_kg * self.weight_per_meter
+        elif hasattr(self, 'cost_per_unit'):
+            # Use the cost_per_unit field as fallback
+            return self.cost_per_unit or 0.0
+        else:
+            # Default fallback
+            return 0.0
+
+class ComponentMaterial(Base):
+    """Many-to-many relationship between components and materials"""
+    __tablename__ = 'component_materials'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    component_id = Column(Integer, ForeignKey('components.id'), nullable=False)
+    material_id = Column(Integer, ForeignKey('materials.id'), nullable=False)
+    quantity_required = Column(Float, nullable=False, default=1.0)
+    unit_of_measure = Column(String(20), default='kg')
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.now)
+    
+    # Relationships
+    component = relationship("Component", back_populates="materials")
+    material = relationship("Material", back_populates="component_materials")
+    
+    def __repr__(self):
+        return f"<ComponentMaterial(component_id={self.component_id}, material_id={self.material_id}, quantity={self.quantity_required})>"
+
 class ComponentStock(Base):
     """Track stock levels for components"""
     __tablename__ = 'component_stock'
@@ -505,6 +574,34 @@ class ComponentStock(Base):
     
     def __repr__(self):
         return f"<ComponentStock(component_id={self.component_id}, current_stock={self.current_stock})>"
+
+class LabelLog(Base):
+    """Track printed labels for audit and reporting"""
+    __tablename__ = 'label_logs'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_item_id = Column(Integer, ForeignKey('order_items.id'), nullable=True)
+    customer_name = Column(String(200), nullable=False)
+    customer_name_index = Column(String(50), nullable=False)
+    order_number = Column(String(100), nullable=False)
+    item_code = Column(String(100), nullable=False)
+    item_name = Column(String(300), nullable=False)
+    quantity = Column(Integer, nullable=False)
+    printed_quantity = Column(Integer, nullable=False)  # How many labels were printed
+    barcodes_included = Column(Boolean, default=False)
+    item_barcode = Column(String(200))  # The actual barcode data
+    order_barcode = Column(String(200))
+    quantity_barcode = Column(String(200))
+    printed_by = Column(String(100))  # User who printed the labels
+    printed_at = Column(DateTime, default=datetime.now)
+    pdf_filename = Column(String(500))  # Path to the generated PDF
+    notes = Column(Text)  # Additional notes about the print job
+    
+    # Relationships
+    order_item = relationship("OrderItem", back_populates="label_logs")
+    
+    def __repr__(self):
+        return f"<LabelLog(order_item_id={self.order_item_id}, customer={self.customer_name_index}, quantity={self.quantity}, printed_at={self.printed_at})>"
 
 def get_database_path():
     """Get database path from config or use default"""
@@ -560,95 +657,25 @@ def init_db():
         supabase_url = os.environ.get('SUPABASE_URL')
         
         if supabase_url:
-            logger.info("Creating database engine with hstore bypass")
+            # Use Supabase PostgreSQL with optimized settings
             
-            # Use a completely different approach - bypass hstore detection entirely
-            try:
-                # Parse the URL to add connection parameters
-                from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
-                
-                parsed = urlparse(supabase_url)
-                query_params = parse_qs(parsed.query)
-                
-                # Add connection parameters to bypass hstore issues
-                query_params.update({
-                    'sslmode': ['require'],
-                    'connect_timeout': ['10'],
-                    'application_name': ['orders_mobile_app'],
-                    'options': ['-c statement_timeout=30000']
-                })
-                
-                # Rebuild URL with parameters
-                new_query = urlencode(query_params, doseq=True)
-                enhanced_url = urlunparse((
-                    parsed.scheme,
-                    parsed.netloc,
-                    parsed.path,
-                    parsed.params,
-                    new_query,
-                    parsed.fragment
-                ))
-                
-                # Create engine with minimal pool and hstore bypass
-                engine = create_engine(
-                    enhanced_url,
-                    pool_size=1,
-                    max_overflow=0,
-                    pool_pre_ping=True,
-                    pool_recycle=30,
-                    pool_timeout=5,
-                    # Disable hstore detection completely
-                    use_native_hstore=False,
-                    connect_args={
-                        "connect_timeout": 10,
-                        "application_name": "orders_mobile_app",
-                        "sslmode": "require",
-                        "options": "-c statement_timeout=30000"
-                    }
-                )
-                
-                logger.info("Created engine with hstore bypass")
-                
-            except Exception as e:
-                logger.error(f"Enhanced connection failed: {e}")
-                # Fallback to basic connection
-                try:
-                    engine = create_engine(
-                        supabase_url,
-                        pool_size=1,
-                        max_overflow=0,
-                        pool_pre_ping=True,
-                        pool_recycle=30,
-                        pool_timeout=5,
-                        use_native_hstore=False,
-                        connect_args={
-                            "connect_timeout": 10,
-                            "sslmode": "disable"  # Try without SSL as last resort
-                        }
-                    )
-                    logger.info("Created fallback engine without SSL")
-                except Exception as e2:
-                    logger.error(f"All connection attempts failed: {e2}")
-                    raise e2
-            
-            # Add connection reset mechanism
-            @event.listens_for(engine, "connect")
-            def reset_connection_state(dbapi_connection, connection_record):
-                """Reset connection state and clear any lingering issues"""
-                try:
-                    with dbapi_connection.cursor() as cursor:
-                        # Reset connection state
-                        cursor.execute("SET statement_timeout = '300s'")
-                        cursor.execute("RESET ALL")  # Reset all session variables
-                        cursor.execute("SELECT 1")  # Test the connection
-                        logger.info("Database connection reset successfully")
-                except Exception as e:
-                    logger.warning(f"Could not reset connection state: {e}")
-                    # If reset fails, try to close and recreate
-                    try:
-                        dbapi_connection.close()
-                    except Exception:
-                        pass
+            # Add connection pooling and optimization parameters
+            engine = create_engine(
+                supabase_url,
+                pool_size=5,  # Connection pool size
+                max_overflow=10,  # Additional connections when pool is full
+                pool_pre_ping=True,  # Test connections before use
+                pool_recycle=1800,  # Recycle connections every 30 minutes (reduced from 1 hour)
+                pool_timeout=30,  # Timeout for getting connection from pool
+                connect_args={
+                    "connect_timeout": 10,  # 10 second connection timeout
+                    "application_name": "orders_desktop_app",  # Identify the app
+                    "keepalives_idle": 60,  # Send keepalive after 60 seconds of inactivity
+                    "keepalives_interval": 10,  # Send keepalive every 10 seconds
+                    "keepalives_count": 5,  # Allow 5 missed keepalives before closing
+                    "options": "-c statement_timeout=300000"  # 5 minute statement timeout
+                }
+            )
             
             Base.metadata.create_all(engine)
             

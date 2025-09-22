@@ -207,7 +207,7 @@ class StockTab(QWidget):
                         self.session.rollback()
                         QMessageBox.critical(self, "Error", f"Error adding stock entry: {str(e)}")
         except Exception as e:
-            print(f"Error in add_stock: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error opening stock dialog: {str(e)}")
     
     def edit_stock(self):
@@ -253,7 +253,7 @@ class StockTab(QWidget):
             else:
                 QMessageBox.warning(self, "Error", "Component not found")
         except Exception as e:
-            print(f"Error in edit_stock: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error editing stock: {str(e)}")
     
     def add_transaction(self):
@@ -301,7 +301,7 @@ class StockTab(QWidget):
             else:
                 QMessageBox.warning(self, "Error", "Component not found")
         except Exception as e:
-            print(f"Error in add_transaction: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error adding transaction: {str(e)}")
     
     def remove_transaction(self):
@@ -350,5 +350,5 @@ class StockTab(QWidget):
             else:
                 QMessageBox.warning(self, "Error", "Component not found")
         except Exception as e:
-            print(f"Error in remove_transaction: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error removing transaction: {str(e)}") 

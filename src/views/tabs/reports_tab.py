@@ -9,7 +9,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QDate, QThread, pyqtSlot
 from PyQt6.QtGui import QFont
 from sqlalchemy.orm import Session
 from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
 from utils.permissions import get_permissions_manager
+from models.database import get_session_with_retry, execute_with_retry
 import pandas as pd
 import os
 
@@ -27,22 +29,39 @@ class ReportGenerator(QThread):
     
     def run(self):
         try:
+            # Use retry logic for all database operations
             if self.report_type == "sales_summary":
-                data = self.generate_sales_summary()
+                def wrapper(session):
+                    return self.generate_sales_summary(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "production_status":
-                data = self.generate_production_status()
+                def wrapper(session):
+                    return self.generate_production_status(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "customer_analysis":
-                data = self.generate_customer_analysis()
+                def wrapper(session):
+                    return self.generate_customer_analysis(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "delivery_tracking":
-                data = self.generate_delivery_tracking()
+                def wrapper(session):
+                    return self.generate_delivery_tracking(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "inventory_status":
-                data = self.generate_inventory_status()
+                def wrapper(session):
+                    return self.generate_inventory_status(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "prices_by_customer":
-                data = self.generate_prices_by_customer()
+                def wrapper(session):
+                    return self.generate_prices_by_customer(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "component_requirements":
-                data = self.generate_component_requirements()
+                def wrapper(session):
+                    return self.generate_component_requirements(session)
+                data = execute_with_retry(wrapper)
             elif self.report_type == "stock_analysis":
-                data = self.generate_stock_analysis()
+                def wrapper(session):
+                    return self.generate_stock_analysis(session)
+                data = execute_with_retry(wrapper)
             else:
                 raise ValueError(f"Unknown report type: {self.report_type}")
             
@@ -51,76 +70,98 @@ class ReportGenerator(QThread):
         except Exception as e:
             self.error_occurred.emit(str(e))
     
-    def generate_sales_summary(self):
+    def generate_sales_summary(self, session):
         """Generate sales summary report"""
         from models.database import Order, OrderItem, Customer, Product
-        from utils.currency_converter import convert_to_target_currency, get_currency_info
         
-        # Get parameters
-        start_date = self.params.get('start_date', date.today() - timedelta(days=30))
-        end_date = self.params.get('end_date', date.today())
-        target_currency = self.params.get('target_currency', 'EUR')
+        # Get date range from params
+        start_date = self.params.get('start_date')
+        end_date = self.params.get('end_date')
         
-        # Query orders in date range
-        query = self.session.query(Order)
+        # Build query
+        query = session.query(
+            Order.id,
+            Order.order_number,
+            Order.order_date,
+            Customer.name.label('customer_name'),
+            Product.name.label('product_name'),
+            OrderItem.quantity,
+            OrderItem.price,
+            (OrderItem.quantity * OrderItem.price).label('total_value')
+        ).join(
+            OrderItem, Order.id == OrderItem.order_id
+        ).join(
+            Customer, Order.customer_id == Customer.id
+        ).join(
+            Product, OrderItem.item_id == Product.id
+        )
         
-        # Only apply date filter if not using all records
-        use_all_records = self.params.get('use_all_records', False)
-        if not use_all_records:
+        # Apply date filters if provided
+        if start_date and end_date:
             query = query.filter(
                 Order.order_date >= start_date,
                 Order.order_date <= end_date
             )
         
-        orders = query.all()
+        # Execute query
+        results = query.all()
         
-        # Calculate summary
-        total_orders = len(orders)
-        total_value_target = 0
-        customer_sales = {}
-        
-        for order in orders:
-            # Calculate order value from order items
-            order_value_original = sum(item.quantity * (item.price or 0) for item in order.items)
-            
-            # Convert to target currency for comparison
-            customer_currency = order.customer.currency if order.customer else 'EUR'
-            order_value_target = convert_to_target_currency(order_value_original, customer_currency, target_currency)
-            total_value_target += order_value_target
-            
-            customer_name = order.customer.name if order.customer else "Unknown"
-            if customer_name not in customer_sales:
-                customer_sales[customer_name] = {
-                    'original_value': 0,
-                    'target_value': 0,
-                    'currency': customer_currency
-                }
-            customer_sales[customer_name]['original_value'] += order_value_original
-            customer_sales[customer_name]['target_value'] += order_value_target
-        
-        # Determine period text
-        use_all_records = self.params.get('use_all_records', False)
-        if use_all_records:
-            period_text = "All records"
-        else:
-            period_text = f"{start_date} to {end_date}"
-        
-        return {
-            'period': period_text,
-            'total_orders': total_orders,
-            'total_value_target': total_value_target,
-            'target_currency': target_currency,
-            'customer_sales': customer_sales
+        # Process results
+        data = {
+            'total_orders': len(set(r.id for r in results)),
+            'total_items': len(results),
+            'total_value': sum(r.total_value or 0 for r in results),
+            'orders_by_customer': {},
+            'orders_by_product': {},
+            'daily_sales': {},
+            'details': results
         }
+        
+        # Group by customer
+        for result in results:
+            customer = result.customer_name
+            if customer not in data['orders_by_customer']:
+                data['orders_by_customer'][customer] = {
+                    'orders': 0,
+                    'items': 0,
+                    'value': 0
+                }
+            data['orders_by_customer'][customer]['orders'] += 1
+            data['orders_by_customer'][customer]['items'] += result.quantity or 0
+            data['orders_by_customer'][customer]['value'] += result.total_value or 0
+        
+        # Group by product
+        for result in results:
+            product = result.product_name
+            if product not in data['orders_by_product']:
+                data['orders_by_product'][product] = {
+                    'quantity': 0,
+                    'value': 0
+                }
+            data['orders_by_product'][product]['quantity'] += result.quantity or 0
+            data['orders_by_product'][product]['value'] += result.total_value or 0
+        
+        # Group by date
+        for result in results:
+            date_str = result.order_date.strftime('%Y-%m-%d')
+            if date_str not in data['daily_sales']:
+                data['daily_sales'][date_str] = {
+                    'orders': 0,
+                    'value': 0
+                }
+            data['daily_sales'][date_str]['orders'] += 1
+            data['daily_sales'][date_str]['value'] += result.total_value or 0
+        
+        return data
     
-    def generate_production_status(self):
+    def generate_production_status(self, session):
         """Generate production status report"""
         # This will be implemented when we have ProductionPlan model
         return {
             'message': 'Production status report not yet implemented'
         }
     
-    def generate_customer_analysis(self):
+    def generate_customer_analysis(self, session):
         """Generate customer analysis report"""
         from models.database import Customer, Order
         from utils.currency_converter import convert_to_target_currency, get_currency_info
@@ -128,13 +169,13 @@ class ReportGenerator(QThread):
         # Get parameters
         target_currency = self.params.get('target_currency', 'EUR')
         
-        customers = self.session.query(Customer).all()
+        customers = session.query(Customer).all()
         
         customer_data = []
         total_value_target = 0
         
         for customer in customers:
-            orders = self.session.query(Order).filter(Order.customer_id == customer.id).all()
+            orders = session.query(Order).filter(Order.customer_id == customer.id).all()
             total_orders = len(orders)
             
             # Calculate total value in original currency
@@ -161,9 +202,10 @@ class ReportGenerator(QThread):
             'target_currency': target_currency
         }
     
-    def generate_component_requirements(self):
+    def generate_component_requirements(self, session):
         """Generate component requirements report for undelivered items"""
         from models.database import Order, OrderItem, Product, Component, ProductComponent, Delivery, Item
+        from datetime import datetime
         
         # Get parameters
         start_date = self.params.get('start_date', date.today())
@@ -172,9 +214,11 @@ class ReportGenerator(QThread):
         delivery_status = self.params.get('delivery_status', 'undelivered')  # 'delivered', 'undelivered', 'all'
         currency = self.params.get('currency', 'EUR')  # 'EUR' or 'CZK'
         component_category = self.params.get('component_category')  # Category filter
+        split_by_month = self.params.get('split_by_month', False)  # New parameter for monthly splitting
+        split_by_surface_treatment = self.params.get('split_by_surface_treatment', False)  # New parameter for surface treatment splitting
         
         # Get undelivered order items
-        query = self.session.query(OrderItem).join(Order).join(Item).join(Product)
+        query = session.query(OrderItem).join(Order).join(Item).join(Product)
         
         # Filter by delivery date if not using all records
         if not use_all_records:
@@ -192,14 +236,25 @@ class ReportGenerator(QThread):
         
         order_items = query.all()
         
-        # Calculate delivered quantities for each order item
+        if split_by_surface_treatment:
+            # Generate surface treatment split data
+            return self._generate_component_requirements_by_surface_treatment(order_items, delivery_status, currency, component_category, use_all_records, start_date, end_date)
+        elif split_by_month and not use_all_records:
+            # Generate monthly split data
+            return self._generate_component_requirements_monthly(order_items, start_date, end_date, delivery_status, currency, component_category)
+        else:
+            # Generate traditional aggregated data
+            return self._generate_component_requirements_aggregated(order_items, delivery_status, currency, component_category, use_all_records, start_date, end_date)
+    
+    def _generate_component_requirements_aggregated(self, order_items, delivery_status, currency, component_category, use_all_records, start_date, end_date):
+        """Generate aggregated component requirements (original behavior)"""
         component_requirements = {}
         total_items = 0
         total_components_needed = 0
         
         for order_item in order_items:
-            # Calculate remaining quantity (ordered - delivered)
-            delivered_qty = sum(d.quantity for d in order_item.deliveries)
+            # Use the delivered_quantity field directly instead of calculating from deliveries
+            delivered_qty = order_item.delivered_quantity or 0
             
             # Handle different delivery status filters
             if delivery_status == 'delivered':
@@ -239,8 +294,18 @@ class ReportGenerator(QThread):
                             else:  # CZK
                                 unit_cost = component.unit_cost or 0
                             
+                            # Convert component to simple dictionary to avoid session detachment issues
+                            component_data = {
+                                'id': component.id,
+                                'name': component.name,
+                                'description': component.description,
+                                'category': component.category,
+                                'unit_cost': component.unit_cost,
+                                'unit_cost_eur': component.unit_cost_eur
+                            }
+                            
                             component_requirements[component_key] = {
-                                'component': component,
+                                'component': component_data,
                                 'total_required': 0,
                                 'unit_cost': unit_cost,
                                 'total_cost': 0,
@@ -272,10 +337,255 @@ class ReportGenerator(QThread):
             'period': "All records" if use_all_records else f"{start_date} to {end_date}",
             'delivery_status': delivery_status,
             'currency': currency,
-            'component_category': component_category
+            'component_category': component_category,
+            'split_by_month': False
         }
     
-    def generate_delivery_tracking(self):
+    def _generate_component_requirements_monthly(self, order_items, start_date, end_date, delivery_status, currency, component_category):
+        """Generate component requirements split by calendar month"""
+        from dateutil.relativedelta import relativedelta
+        
+        # Generate list of months in the date range
+        months = []
+        current_date = date(start_date.year, start_date.month, 1)
+        end_month = date(end_date.year, end_date.month, 1)
+        
+        while current_date <= end_month:
+            months.append(current_date)
+            current_date = current_date + relativedelta(months=1)
+        
+        # Initialize monthly data structure
+        monthly_requirements = {}
+        total_items = 0
+        total_components_needed = set()
+        
+        for month_start in months:
+            month_end = month_start + relativedelta(months=1) - timedelta(days=1)
+            month_key = month_start.strftime('%Y-%m')
+            
+            # Filter order items for this month
+            month_items = []
+            for order_item in order_items:
+                if order_item.delivery_date and month_start <= order_item.delivery_date <= month_end:
+                    month_items.append(order_item)
+            
+            # Process items for this month
+            month_requirements = {}
+            month_total_items = 0
+            
+            for order_item in month_items:
+                # Use the delivered_quantity field directly instead of calculating from deliveries
+                delivered_qty = order_item.delivered_quantity or 0
+                
+                # Handle different delivery status filters
+                if delivery_status == 'delivered':
+                    # For delivered items, use the delivered quantity
+                    remaining_qty = delivered_qty
+                elif delivery_status == 'undelivered':
+                    # For undelivered items, use the remaining quantity
+                    remaining_qty = order_item.quantity - delivered_qty
+                else:  # 'all'
+                    # For all items, use the total ordered quantity
+                    remaining_qty = order_item.quantity
+                
+                if remaining_qty > 0:
+                    month_total_items += remaining_qty
+                    
+                    # Get product components
+                    product = order_item.item.product
+                    if product:
+                        for product_component in product.components:
+                            component = product_component.component
+                            
+                            # Filter by component category if specified
+                            if component_category:
+                                # Compare as strings, handle None/empty
+                                if (component.category or "") != component_category:
+                                    continue
+                            
+                            component_key = component.description or 'No description'
+                            total_components_needed.add(component_key)
+                            
+                            # Calculate required quantity for this component
+                            required_qty = product_component.quantity * remaining_qty
+                            
+                            if component_key not in month_requirements:
+                                # Get unit cost in selected currency
+                                if currency == 'EUR':
+                                    unit_cost = component.unit_cost_eur or (component.unit_cost * 0.041)  # Convert CZK to EUR
+                                else:  # CZK
+                                    unit_cost = component.unit_cost or 0
+                                
+                                # Convert component to simple dictionary to avoid session detachment issues
+                                component_data = {
+                                    'id': component.id,
+                                    'name': component.name,
+                                    'description': component.description,
+                                    'category': component.category,
+                                    'unit_cost': component.unit_cost,
+                                    'unit_cost_eur': component.unit_cost_eur
+                                }
+                                
+                                month_requirements[component_key] = {
+                                    'component': component_data,
+                                    'total_required': 0,
+                                    'unit_cost': unit_cost,
+                                    'total_cost': 0,
+                                    'items_using': []
+                                }
+                            
+                            month_requirements[component_key]['total_required'] += required_qty
+                            month_requirements[component_key]['total_cost'] += required_qty * month_requirements[component_key]['unit_cost']
+                            
+                            # Track which items are using this component
+                            item_info = {
+                                'order_number': order_item.order.order_number,
+                                'customer': order_item.order.customer.name if order_item.order.customer else 'Unknown',
+                                'item_name': order_item.item.customer_item_name if order_item.item else 'Unknown',
+                                'remaining_qty': remaining_qty,
+                                'component_qty_per_item': product_component.quantity,
+                                'component_qty_needed': required_qty
+                            }
+                            month_requirements[component_key]['items_using'].append(item_info)
+            
+            monthly_requirements[month_key] = {
+                'requirements': month_requirements,
+                'total_items': month_total_items,
+                'total_cost': sum(comp['total_cost'] for comp in month_requirements.values()),
+                'month_name': month_start.strftime('%B %Y')
+            }
+            total_items += month_total_items
+        
+        # Calculate overall totals
+        total_cost = sum(month_data['total_cost'] for month_data in monthly_requirements.values())
+        
+        return {
+            'monthly_requirements': monthly_requirements,
+            'total_items': total_items,
+            'total_components_needed': len(total_components_needed),
+            'total_cost': total_cost,
+            'period': f"{start_date} to {end_date}",
+            'delivery_status': delivery_status,
+            'currency': currency,
+            'component_category': component_category,
+            'split_by_month': True
+        }
+    
+    def _generate_component_requirements_by_surface_treatment(self, order_items, delivery_status, currency, component_category, use_all_records, start_date, end_date):
+        """Generate component requirements split by surface treatment"""
+        # Group by surface treatment
+        surface_treatment_requirements = {}
+        total_items = 0
+        total_components_needed = set()
+        
+        for order_item in order_items:
+            # Use the delivered_quantity field directly instead of calculating from deliveries
+            delivered_qty = order_item.delivered_quantity or 0
+            
+            # Handle different delivery status filters
+            if delivery_status == 'delivered':
+                # For delivered items, use the delivered quantity
+                remaining_qty = delivered_qty
+            elif delivery_status == 'undelivered':
+                # For undelivered items, use the remaining quantity
+                remaining_qty = order_item.quantity - delivered_qty
+            else:  # 'all'
+                # For all items, use the total ordered quantity
+                remaining_qty = order_item.quantity
+            
+            if remaining_qty > 0:
+                # Get surface treatment (default to KATAFOREZA if not specified)
+                surface_treatment = order_item.surface_treatment or 'KATAFOREZA'
+                
+                if surface_treatment not in surface_treatment_requirements:
+                    surface_treatment_requirements[surface_treatment] = {
+                        'requirements': {},
+                        'total_items': 0,
+                        'total_cost': 0
+                    }
+                
+                surface_treatment_requirements[surface_treatment]['total_items'] += remaining_qty
+                total_items += remaining_qty
+                
+                # Get product components
+                product = order_item.item.product
+                if product:
+                    for product_component in product.components:
+                        component = product_component.component
+                        
+                        # Filter by component category if specified
+                        if component_category:
+                            # Compare as strings, handle None/empty
+                            if (component.category or "") != component_category:
+                                continue
+                        
+                        component_key = component.description or 'No description'
+                        total_components_needed.add(component_key)
+                        
+                        # Calculate required quantity for this component
+                        required_qty = product_component.quantity * remaining_qty
+                        
+                        if component_key not in surface_treatment_requirements[surface_treatment]['requirements']:
+                            # Get unit cost in selected currency
+                            if currency == 'EUR':
+                                unit_cost = component.unit_cost_eur or (component.unit_cost * 0.041)  # Convert CZK to EUR
+                            else:  # CZK
+                                unit_cost = component.unit_cost or 0
+                            
+                            # Convert component to simple dictionary to avoid session detachment issues
+                            component_data = {
+                                'id': component.id,
+                                'name': component.name,
+                                'description': component.description,
+                                'category': component.category,
+                                'unit_cost': component.unit_cost,
+                                'unit_cost_eur': component.unit_cost_eur
+                            }
+                            
+                            surface_treatment_requirements[surface_treatment]['requirements'][component_key] = {
+                                'component': component_data,
+                                'total_required': 0,
+                                'unit_cost': unit_cost,
+                                'total_cost': 0,
+                                'items_using': []
+                            }
+                        
+                        surface_treatment_requirements[surface_treatment]['requirements'][component_key]['total_required'] += required_qty
+                        surface_treatment_requirements[surface_treatment]['requirements'][component_key]['total_cost'] += required_qty * surface_treatment_requirements[surface_treatment]['requirements'][component_key]['unit_cost']
+                        
+                        # Track which items are using this component
+                        item_info = {
+                            'order_number': order_item.order.order_number,
+                            'customer': order_item.order.customer.name if order_item.order.customer else 'Unknown',
+                            'item_name': order_item.item.customer_item_name if order_item.item else 'Unknown',
+                            'remaining_qty': remaining_qty,
+                            'component_qty_per_item': product_component.quantity,
+                            'component_qty_needed': required_qty
+                        }
+                        surface_treatment_requirements[surface_treatment]['requirements'][component_key]['items_using'].append(item_info)
+        
+        # Calculate totals for each surface treatment
+        for surface_treatment in surface_treatment_requirements:
+            surface_treatment_requirements[surface_treatment]['total_cost'] = sum(
+                comp['total_cost'] for comp in surface_treatment_requirements[surface_treatment]['requirements'].values()
+            )
+        
+        # Calculate overall totals
+        total_cost = sum(treatment_data['total_cost'] for treatment_data in surface_treatment_requirements.values())
+        
+        return {
+            'surface_treatment_requirements': surface_treatment_requirements,
+            'total_items': total_items,
+            'total_components_needed': len(total_components_needed),
+            'total_cost': total_cost,
+            'period': "All records" if use_all_records else f"{start_date} to {end_date}",
+            'delivery_status': delivery_status,
+            'currency': currency,
+            'component_category': component_category,
+            'split_by_surface_treatment': True
+        }
+    
+    def generate_delivery_tracking(self, session):
         """Generate delivery tracking report"""
         from models.database import Order, OrderItem, Delivery
         
@@ -284,7 +594,7 @@ class ReportGenerator(QThread):
         end_date = self.params.get('end_date', date.today())
         use_all_records = self.params.get('use_all_records', False)
         
-        query = self.session.query(Delivery)
+        query = session.query(Delivery)
         
         # Only apply date filter if not using all records
         if not use_all_records:
@@ -307,14 +617,24 @@ class ReportGenerator(QThread):
                 elif delivered_qty == 0:
                     status = "Pending"
             
+            # Calculate weight per unit and total weight
+            weight_per_unit = 0.0
+            if delivery.order_item and delivery.order_item.item and delivery.order_item.item.product:
+                weight_per_unit = delivery.order_item.item.product.weight_per_unit or 0.0
+            
+            total_weight = weight_per_unit * delivery.quantity if weight_per_unit > 0 else 0.0
+            
             delivery_data.append({
                 'order_number': delivery.order_item.order.order_number if delivery.order_item and delivery.order_item.order else 'N/A',
-                'customer': delivery.order_item.order.customer.name if delivery.order_item and delivery.order_item.order and delivery.order_item.order.customer else 'N/A',
+                'customer': delivery.order_item.order.customer.name_index if delivery.order_item and delivery.order_item.order and delivery.order_item.order.customer else 'N/A',
                 'item_code': delivery.order_item.item.customer_code if delivery.order_item and delivery.order_item.item else 'N/A',
                 'item_name': delivery.order_item.item.customer_item_name if delivery.order_item and delivery.order_item.item else 'N/A',
                 'quantity': delivery.quantity,
+                'weight_per_unit': weight_per_unit,
+                'total_weight': total_weight,
                 'delivery_date': delivery.delivery_date,
-                'status': status
+                'status': status,
+                'delivery_created_at': delivery.created_at.strftime('%Y-%m-%d %H:%M:%S') if delivery.created_at else 'N/A'
             })
         
         # Determine period text
@@ -328,11 +648,11 @@ class ReportGenerator(QThread):
             'deliveries': delivery_data
         }
     
-    def generate_inventory_status(self):
+    def generate_inventory_status(self, session):
         """Generate inventory status report"""
         from models.database import Item, Product
         
-        items = self.session.query(Item).join(Product).all()
+        items = session.query(Item).join(Product).all()
         
         inventory_data = []
         for item in items:
@@ -351,7 +671,7 @@ class ReportGenerator(QThread):
             'items': inventory_data
         }
 
-    def generate_prices_by_customer(self):
+    def generate_prices_by_customer(self, session):
         """Generate prices by customer report"""
         from models.database import Order, OrderItem, Customer, Product, Item
         from utils.currency_converter import convert_to_target_currency, get_currency_info
@@ -365,7 +685,7 @@ class ReportGenerator(QThread):
         target_currency = self.params.get('target_currency', 'EUR')
         
         # Build query for order items with prices
-        query = self.session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
+        query = session.query(OrderItem).join(Order).join(Customer).join(Item).join(Product)
         
         # Apply filters
         if customer_id:
@@ -460,7 +780,7 @@ class ReportGenerator(QThread):
             'customer_product_prices': customer_product_prices
         }
 
-    def generate_stock_analysis(self):
+    def generate_stock_analysis(self, session):
         """Generate stock analysis report comparing needs vs available stock"""
         from models.database import Order, OrderItem, Product, Component, ProductComponent, ComponentStock, Item
         
@@ -471,7 +791,7 @@ class ReportGenerator(QThread):
         delivery_status = self.params.get('delivery_status', 'undelivered')  # 'delivered', 'undelivered', 'all'
         
         # Get order items that need components
-        query = self.session.query(OrderItem).join(Order).join(Item).join(Product)
+        query = session.query(OrderItem).join(Order).join(Item).join(Product)
         
         # Filter by delivery date if not using all records
         if not use_all_records:
@@ -548,7 +868,7 @@ class ReportGenerator(QThread):
             total_needed = need_data['total_needed']
             
             # Get stock information
-            stock = self.session.query(ComponentStock).filter(
+            stock = session.query(ComponentStock).filter(
                 ComponentStock.component_id == component_id
             ).first()
             
@@ -666,21 +986,48 @@ class ReportDialog(QDialog):
             
             # Customer selection
             from models.database import Customer, Product
-            customers = self.session.query(Customer).order_by(Customer.name_index).all()
+            
+            # Use the original session for dialog setup (simpler approach)
+            try:
+                customers = self.session.query(Customer).order_by(Customer.name_index).all()
+                # Convert to simple data structures to avoid session issues
+                customer_data = []
+                for customer in customers:
+                    customer_data.append({
+                        'id': customer.id,
+                        'name_index': customer.name_index or '',
+                        'name': customer.name or ''
+                    })
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"Failed to load customers: {str(e)}")
+                customer_data = []
+            
             self.customer_combo = QComboBox()
             self.customer_combo.setMinimumWidth(200)  # Make dropdown wider
             self.customer_combo.addItem("All Customers", None)
-            for customer in customers:
-                self.customer_combo.addItem(f"{customer.name_index} - {customer.name}", customer.id)
+            for customer in customer_data:
+                self.customer_combo.addItem(f"{customer['name_index']} - {customer['name']}", customer['id'])
             layout.addRow("Customer:", self.customer_combo)
             
             # Product selection
-            products = self.session.query(Product).order_by(Product.name).all()
+            try:
+                products = self.session.query(Product).order_by(Product.name).all()
+                # Convert to simple data structures to avoid session issues
+                product_data = []
+                for product in products:
+                    product_data.append({
+                        'id': product.id,
+                        'name': product.name or ''
+                    })
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"Failed to load products: {str(e)}")
+                product_data = []
+            
             self.product_combo = QComboBox()
             self.product_combo.setMinimumWidth(200)  # Make dropdown wider
             self.product_combo.addItem("All Products", None)
-            for product in products:
-                self.product_combo.addItem(product.name, product.id)
+            for product in product_data:
+                self.product_combo.addItem(product['name'], product['id'])
             layout.addRow("Product:", self.product_combo)
             
         elif self.report_type == "component_requirements":
@@ -693,18 +1040,39 @@ class ReportDialog(QDialog):
             
             # Component category filter
             from models.database import Component
-            categories = self.session.query(Component.category).filter(
-                Component.category.isnot(None),
-                Component.category != ""
-            ).distinct().order_by(Component.category).all()
+            
+            try:
+                categories = self.session.query(Component.category).filter(
+                    Component.category.isnot(None),
+                    Component.category != ""
+                ).distinct().order_by(Component.category).all()
+                # Convert to simple data structures to avoid session issues
+                category_data = []
+                for (category,) in categories:
+                    if category and category.strip():
+                        category_data.append(category.strip())
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"Failed to load component categories: {str(e)}")
+                category_data = []
             
             self.category_combo = QComboBox()
             self.category_combo.addItem("All Categories", None)
-            for (category,) in categories:
-                if category and category.strip():
-                    self.category_combo.addItem(category.strip(), category.strip())
+            for category in category_data:
+                self.category_combo.addItem(category, category)
             self.category_combo.setMinimumWidth(200)
             layout.addRow("Component Category:", self.category_combo)
+            
+            # Monthly split switch
+            self.split_by_month = QCheckBox("Split by calendar month")
+            self.split_by_month.setChecked(False)
+            self.split_by_month.setToolTip("When enabled, component requirements will be split by calendar month instead of showing totals for the entire period")
+            layout.addRow("", self.split_by_month)
+            
+            # Surface treatment split switch
+            self.split_by_surface_treatment = QCheckBox("Split by surface treatment")
+            self.split_by_surface_treatment.setChecked(False)
+            self.split_by_surface_treatment.setToolTip("When enabled, component requirements will be split by surface treatment (KATAFOREZA, FOSFAT, etc.)")
+            layout.addRow("", self.split_by_surface_treatment)
         elif self.report_type == "stock_analysis":
             # Delivery status filter
             self.delivery_status_combo = QComboBox()
@@ -723,7 +1091,6 @@ class ReportDialog(QDialog):
     def on_date_range_changed(self, selected_range: str):
         """Handle date range selection changes"""
         from datetime import date, timedelta
-        from dateutil.relativedelta import relativedelta
         
         today = date.today()
         
@@ -828,6 +1195,10 @@ class ReportDialog(QDialog):
             params['delivery_status'] = self.delivery_status_combo.currentText().lower()
             if hasattr(self, 'category_combo'):
                 params['component_category'] = self.category_combo.currentData()
+            if hasattr(self, 'split_by_month'):
+                params['split_by_month'] = self.split_by_month.isChecked()
+            if hasattr(self, 'split_by_surface_treatment'):
+                params['split_by_surface_treatment'] = self.split_by_surface_treatment.isChecked()
         elif self.report_type == "stock_analysis" and hasattr(self, 'delivery_status_combo'):
             params['delivery_status'] = self.delivery_status_combo.currentText().lower()
         
@@ -1054,7 +1425,8 @@ Total Orders Analyzed: {len(order_prices)}"""
             return summary
         
         elif report_type == "component_requirements":
-            component_requirements = data.get('component_requirements', {})
+            split_by_month = data.get('split_by_month', False)
+            split_by_surface_treatment = data.get('split_by_surface_treatment', False)
             total_items = data.get('total_items', 0)
             total_components_needed = data.get('total_components_needed', 0)
             total_cost = data.get('total_cost', 0)
@@ -1063,7 +1435,79 @@ Total Orders Analyzed: {len(order_prices)}"""
             currency = data.get('currency', 'EUR')
             component_category = data.get('component_category')
             
-            summary = f"""Component Requirements Report
+            if split_by_surface_treatment:
+                surface_treatment_requirements = data.get('surface_treatment_requirements', {})
+                
+                summary = f"""Component Requirements Report (Surface Treatment Split)
+Period: {period}
+Delivery Status: {delivery_status.title()}
+Component Category: {component_category if component_category else 'All Categories'}
+Total Items: {total_items}
+Total Components Needed: {total_components_needed}
+Total Component Cost: {total_cost:,.2f} {currency}
+
+Surface Treatment Breakdown:"""
+                
+                # Sort surface treatments alphabetically
+                sorted_treatments = sorted(surface_treatment_requirements.items())
+                
+                for surface_treatment, treatment_data in sorted_treatments:
+                    treatment_total_items = treatment_data['total_items']
+                    treatment_total_cost = treatment_data['total_cost']
+                    treatment_requirements = treatment_data['requirements']
+                    
+                    summary += f"\n\n{surface_treatment}:"
+                    summary += f"\n  Total Items: {treatment_total_items}"
+                    summary += f"\n  Total Cost: {treatment_total_cost:,.2f} {currency}"
+                    summary += f"\n  Components: {len(treatment_requirements)}"
+                    
+                    # Show top 3 components by cost for this treatment
+                    sorted_components = sorted(treatment_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                    for component_name, comp_data in sorted_components[:3]:
+                        summary += f"\n  - {component_name}: {comp_data['total_required']:.2f} units ({currency} {comp_data['total_cost']:.2f})"
+                
+                return summary
+            elif split_by_month:
+                monthly_requirements = data.get('monthly_requirements', {})
+                
+                summary = f"""Component Requirements Report (Monthly Split)
+Period: {period}
+Delivery Status: {delivery_status.title()}
+Component Category: {component_category if component_category else 'All Categories'}
+Total Items: {total_items}
+Total Components Needed: {total_components_needed}
+Total Component Cost: {total_cost:,.2f} {currency}
+
+Monthly Breakdown:"""
+                
+                # Sort months chronologically
+                sorted_months = sorted(monthly_requirements.items())
+                
+                for month_key, month_data in sorted_months:
+                    month_name = month_data['month_name']
+                    month_total_items = month_data['total_items']
+                    month_total_cost = month_data['total_cost']
+                    month_requirements = month_data['requirements']
+                    
+                    summary += f"\n\n{month_name}:"
+                    summary += f"\n  Total Items: {month_total_items}"
+                    summary += f"\n  Total Cost: {month_total_cost:,.2f} {currency}"
+                    
+                    if month_requirements:
+                        summary += f"\n  Components:"
+                        # Sort components by total cost for this month
+                        sorted_components = sorted(month_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                        
+                        for component_name, comp_data in sorted_components:
+                            summary += f"\n    - {component_name}: {comp_data['total_required']:.2f} units ({currency} {comp_data['total_cost']:.2f})"
+                    else:
+                        summary += f"\n  No components required"
+                
+                return summary
+            else:
+                component_requirements = data.get('component_requirements', {})
+                
+                summary = f"""Component Requirements Report
 Period: {period}
 Delivery Status: {delivery_status.title()}
 Component Category: {component_category if component_category else 'All Categories'}
@@ -1072,14 +1516,14 @@ Total Components Needed: {total_components_needed}
 Total Component Cost: {total_cost:,.2f} {currency}
 
 Component Summary:"""
-            
-            # Sort components by total cost
-            sorted_components = sorted(component_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
-            
-            for component_name, comp_data in sorted_components:
-                summary += f"\n- {component_name}: {comp_data['total_required']:.2f} units ({currency} {comp_data['total_cost']:.2f})"
-            
-            return summary
+                
+                # Sort components by total cost
+                sorted_components = sorted(component_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                
+                for component_name, comp_data in sorted_components:
+                    summary += f"\n- {component_name}: {comp_data['total_required']:.2f} units ({currency} {comp_data['total_cost']:.2f})"
+                
+                return summary
         
         elif report_type == "stock_analysis":
             stock_analysis = data.get('stock_analysis', [])
@@ -1140,8 +1584,8 @@ Stock Status:"""
         
         elif report_type == "delivery_tracking":
             deliveries = data.get('deliveries', [])
-            self.details_table.setColumnCount(7)
-            self.details_table.setHorizontalHeaderLabels(["Order", "Customer", "Item Code", "Item Name", "Quantity", "Delivery Date", "Status"])
+            self.details_table.setColumnCount(9)
+            self.details_table.setHorizontalHeaderLabels(["Order", "Customer", "Item Code", "Item Name", "Quantity", "Weight/Unit (kg)", "Total Weight (kg)", "Delivery Date", "Status"])
             self.details_table.setRowCount(len(deliveries))
             
             for row, delivery in enumerate(deliveries):
@@ -1150,8 +1594,10 @@ Stock Status:"""
                 self.details_table.setItem(row, 2, QTableWidgetItem(delivery['item_code']))
                 self.details_table.setItem(row, 3, QTableWidgetItem(delivery['item_name']))
                 self.details_table.setItem(row, 4, QTableWidgetItem(str(delivery['quantity'])))
-                self.details_table.setItem(row, 5, QTableWidgetItem(str(delivery['delivery_date'])))
-                self.details_table.setItem(row, 6, QTableWidgetItem(delivery['status']))
+                self.details_table.setItem(row, 5, QTableWidgetItem(f"{delivery['weight_per_unit']:.3f}" if delivery['weight_per_unit'] > 0 else "N/A"))
+                self.details_table.setItem(row, 6, QTableWidgetItem(f"{delivery['total_weight']:.3f}" if delivery['total_weight'] > 0 else "N/A"))
+                self.details_table.setItem(row, 7, QTableWidgetItem(str(delivery['delivery_date'])))
+                self.details_table.setItem(row, 8, QTableWidgetItem(delivery['status']))
         
         elif report_type == "inventory_status":
             items = data.get('items', [])
@@ -1218,25 +1664,100 @@ Stock Status:"""
                 self.details_table.setItem(row, col, QTableWidgetItem(f"{price_data['total_price_target']:,.2f} {target_currency}"))
         
         elif report_type == "component_requirements":
-            component_requirements = data.get('component_requirements', {})
+            split_by_month = data.get('split_by_month', False)
+            split_by_surface_treatment = data.get('split_by_surface_treatment', False)
             currency = data.get('currency', 'EUR')
-            self.details_table.setColumnCount(6)
-            self.details_table.setHorizontalHeaderLabels([
-                "Component", "Category", "Description", f"Unit Cost ({currency})", "Total Required", f"Total Cost ({currency})"
-            ])
-            self.details_table.setRowCount(len(component_requirements))
             
-            # Sort components by total cost
-            sorted_components = sorted(component_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
-            
-            for row, (component_name, comp_data) in enumerate(sorted_components):
-                component = comp_data['component']
-                self.details_table.setItem(row, 0, QTableWidgetItem(component_name))
-                self.details_table.setItem(row, 1, QTableWidgetItem(component.category or ""))
-                self.details_table.setItem(row, 2, QTableWidgetItem(component.description or ""))
-                self.details_table.setItem(row, 3, QTableWidgetItem(f"{comp_data['unit_cost']:.2f}"))
-                self.details_table.setItem(row, 4, QTableWidgetItem(f"{comp_data['total_required']:.2f}"))
-                self.details_table.setItem(row, 5, QTableWidgetItem(f"{comp_data['total_cost']:.2f}"))
+            if split_by_surface_treatment:
+                surface_treatment_requirements = data.get('surface_treatment_requirements', {})
+                
+                # Calculate total rows needed (sum of components across all surface treatments)
+                total_rows = 0
+                for treatment_data in surface_treatment_requirements.values():
+                    total_rows += len(treatment_data['requirements'])
+                
+                self.details_table.setColumnCount(7)
+                self.details_table.setHorizontalHeaderLabels([
+                    "Surface Treatment", "Component", "Category", "Description", f"Unit Cost ({currency})", "Total Required", f"Total Cost ({currency})"
+                ])
+                self.details_table.setRowCount(total_rows)
+                
+                row = 0
+                # Sort surface treatments alphabetically
+                sorted_treatments = sorted(surface_treatment_requirements.items())
+                
+                for surface_treatment, treatment_data in sorted_treatments:
+                    treatment_requirements = treatment_data['requirements']
+                    
+                    # Sort components by total cost for this treatment
+                    sorted_components = sorted(treatment_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                    
+                    for component_name, comp_data in sorted_components:
+                        component = comp_data['component']
+                        
+                        self.details_table.setItem(row, 0, QTableWidgetItem(surface_treatment))
+                        self.details_table.setItem(row, 1, QTableWidgetItem(component_name))
+                        self.details_table.setItem(row, 2, QTableWidgetItem(component.get('category') or ""))
+                        self.details_table.setItem(row, 3, QTableWidgetItem(component.get('description') or ""))
+                        self.details_table.setItem(row, 4, QTableWidgetItem(f"{comp_data['unit_cost']:,.2f}"))
+                        self.details_table.setItem(row, 5, QTableWidgetItem(f"{comp_data['total_required']:,.2f}"))
+                        self.details_table.setItem(row, 6, QTableWidgetItem(f"{comp_data['total_cost']:,.2f}"))
+                        
+                        row += 1
+            elif split_by_month:
+                monthly_requirements = data.get('monthly_requirements', {})
+                
+                # Calculate total rows needed (sum of components across all months)
+                total_rows = 0
+                for month_data in monthly_requirements.values():
+                    total_rows += len(month_data['requirements'])
+                
+                self.details_table.setColumnCount(7)
+                self.details_table.setHorizontalHeaderLabels([
+                    "Month", "Component", "Category", "Description", f"Unit Cost ({currency})", "Total Required", f"Total Cost ({currency})"
+                ])
+                self.details_table.setRowCount(total_rows)
+                
+                row = 0
+                # Sort months chronologically
+                sorted_months = sorted(monthly_requirements.items())
+                
+                for month_key, month_data in sorted_months:
+                    month_name = month_data['month_name']
+                    month_requirements = month_data['requirements']
+                    
+                    # Sort components by total cost for this month
+                    sorted_components = sorted(month_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                    
+                    for component_name, comp_data in sorted_components:
+                        component = comp_data['component']
+                        self.details_table.setItem(row, 0, QTableWidgetItem(month_name))
+                        self.details_table.setItem(row, 1, QTableWidgetItem(component_name))
+                        self.details_table.setItem(row, 2, QTableWidgetItem(component.get('category') or ""))
+                        self.details_table.setItem(row, 3, QTableWidgetItem(component.get('description') or ""))
+                        self.details_table.setItem(row, 4, QTableWidgetItem(f"{comp_data['unit_cost']:.2f}"))
+                        self.details_table.setItem(row, 5, QTableWidgetItem(f"{comp_data['total_required']:.2f}"))
+                        self.details_table.setItem(row, 6, QTableWidgetItem(f"{comp_data['total_cost']:.2f}"))
+                        row += 1
+            else:
+                component_requirements = data.get('component_requirements', {})
+                self.details_table.setColumnCount(6)
+                self.details_table.setHorizontalHeaderLabels([
+                    "Component", "Category", "Description", f"Unit Cost ({currency})", "Total Required", f"Total Cost ({currency})"
+                ])
+                self.details_table.setRowCount(len(component_requirements))
+                
+                # Sort components by total cost
+                sorted_components = sorted(component_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                
+                for row, (component_name, comp_data) in enumerate(sorted_components):
+                    component = comp_data['component']
+                    self.details_table.setItem(row, 0, QTableWidgetItem(component_name))
+                    self.details_table.setItem(row, 1, QTableWidgetItem(component.get('category') or ""))
+                    self.details_table.setItem(row, 2, QTableWidgetItem(component.get('description') or ""))
+                    self.details_table.setItem(row, 3, QTableWidgetItem(f"{comp_data['unit_cost']:.2f}"))
+                    self.details_table.setItem(row, 4, QTableWidgetItem(f"{comp_data['total_required']:.2f}"))
+                    self.details_table.setItem(row, 5, QTableWidgetItem(f"{comp_data['total_cost']:.2f}"))
         
         elif report_type == "stock_analysis":
             stock_analysis = data.get('stock_analysis', [])
@@ -1285,21 +1806,79 @@ Stock Status:"""
                 df = pd.DataFrame(self.current_report_data.get('order_prices', []))
             
             elif report_type == "component_requirements":
-                component_requirements = self.current_report_data.get('component_requirements', {})
-                export_data = []
+                split_by_month = self.current_report_data.get('split_by_month', False)
+                split_by_surface_treatment = self.current_report_data.get('split_by_surface_treatment', False)
+                currency = self.current_report_data.get('currency', 'EUR')
                 
-                for component_name, comp_data in component_requirements.items():
-                    component = comp_data['component']
-                    export_data.append({
-                        'Component': component_name,
-                        'Category': component.category or "",
-                        'Description': component.description or "",
-                        'Unit Cost (EUR)': comp_data['unit_cost'],
-                        'Total Required': comp_data['total_required'],
-                        'Total Cost (EUR)': comp_data['total_cost']
-                    })
-                
-                df = pd.DataFrame(export_data)
+                if split_by_surface_treatment:
+                    surface_treatment_requirements = self.current_report_data.get('surface_treatment_requirements', {})
+                    export_data = []
+                    
+                    # Sort surface treatments alphabetically
+                    sorted_treatments = sorted(surface_treatment_requirements.items())
+                    
+                    for surface_treatment, treatment_data in sorted_treatments:
+                        treatment_requirements = treatment_data['requirements']
+                        
+                        # Sort components by total cost for this treatment
+                        sorted_components = sorted(treatment_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                        
+                        for component_name, comp_data in sorted_components:
+                            component = comp_data['component']
+                            export_data.append({
+                                'Surface Treatment': surface_treatment,
+                                'Component': component_name,
+                                'Category': component.get('category') or "",
+                                'Description': component.get('description') or "",
+                                f'Unit Cost ({currency})': comp_data['unit_cost'],
+                                'Total Required': comp_data['total_required'],
+                                f'Total Cost ({currency})': comp_data['total_cost']
+                            })
+                    
+                    df = pd.DataFrame(export_data)
+                elif split_by_month:
+                    monthly_requirements = self.current_report_data.get('monthly_requirements', {})
+                    export_data = []
+                    
+                    # Sort months chronologically
+                    sorted_months = sorted(monthly_requirements.items())
+                    
+                    for month_key, month_data in sorted_months:
+                        month_name = month_data['month_name']
+                        month_requirements = month_data['requirements']
+                        
+                        # Sort components by total cost for this month
+                        sorted_components = sorted(month_requirements.items(), key=lambda x: x[1]['total_cost'], reverse=True)
+                        
+                        for component_name, comp_data in sorted_components:
+                            component = comp_data['component']
+                            export_data.append({
+                                'Month': month_name,
+                                'Component': component_name,
+                                'Category': component.get('category') or "",
+                                'Description': component.get('description') or "",
+                                f'Unit Cost ({currency})': comp_data['unit_cost'],
+                                'Total Required': comp_data['total_required'],
+                                f'Total Cost ({currency})': comp_data['total_cost']
+                            })
+                    
+                    df = pd.DataFrame(export_data)
+                else:
+                    component_requirements = self.current_report_data.get('component_requirements', {})
+                    export_data = []
+                    
+                    for component_name, comp_data in component_requirements.items():
+                        component = comp_data['component']
+                        export_data.append({
+                            'Component': component_name,
+                            'Category': component.get('category') or "",
+                            'Description': component.get('description') or "",
+                            f'Unit Cost ({currency})': comp_data['unit_cost'],
+                            'Total Required': comp_data['total_required'],
+                            f'Total Cost ({currency})': comp_data['total_cost']
+                        })
+                    
+                    df = pd.DataFrame(export_data)
             
             elif report_type == "stock_analysis":
                 stock_analysis = self.current_report_data.get('stock_analysis', [])

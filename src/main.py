@@ -6,8 +6,10 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QTabWidget, QWidget, QVBo
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
 from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.exc import OperationalError, DisconnectionError, TimeoutError
 from models.database import init_db, User, UserRole
 from utils.auth import create_default_users, get_role_display_name
+from utils.database_manager import create_database_manager, safe_database_operation
 from views.tabs.customers_tab import CustomersTab
 from views.tabs.products_tab import ProductsTab
 from views.tabs.items_tab import ItemsTab
@@ -16,9 +18,11 @@ from views.tabs.order_items_tab import OrderItemsTab
 from views.tabs.employees_tab import EmployeesTab
 from views.tabs.import_tab import ImportTab
 from views.tabs.labels_tab import LabelsTab
+from views.tabs.label_logs_tab import LabelLogsTab
 from views.tabs.production_plans_tab import ProductionPlansTab
 from views.tabs.reports_tab import ReportsTab
 from views.tabs.components_tab import ComponentsTab
+from views.tabs.materials_tab import MaterialsTab
 from views.tabs.stock_tab import StockTab
 from views.dialogs.settings_dialog import SettingsDialog
 from views.dialogs.login_dialog import LoginDialog
@@ -31,7 +35,7 @@ os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'orders.log')
 logging.basicConfig(
     filename=log_file,
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -70,11 +74,16 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        # Initialize database with thread-safe session factory
+        # Initialize database with thread-safe session factory and connection manager
         engine = init_db()
         session_factory = sessionmaker(bind=engine)
         self.Session = scoped_session(session_factory)
         self.session = self.Session()
+        
+        # Create database connection manager
+        self.db_manager = create_database_manager(session_factory)
+        self.db_manager.connection_lost.connect(self.on_connection_lost)
+        self.db_manager.connection_restored.connect(self.on_connection_restored)
         
         # Create default users if they don't exist
         try:
@@ -108,9 +117,13 @@ class MainWindow(QMainWindow):
             self.order_items_tab = OrderItemsTab(self.session, self.current_user)
             self.employees_tab = EmployeesTab(self.session, self.current_user)
             self.labels_tab = LabelsTab(self.session, self.current_user)
+            self.label_logs_tab = LabelLogsTab(self.session, self.current_user)
+            # Fix detached user issue
+            self.current_user = self.session.merge(self.current_user)
             self.production_plans_tab = ProductionPlansTab(self.session, self.current_user)
             self.reports_tab = ReportsTab(self.session, self.current_user)
             self.components_tab = ComponentsTab(self.session, self.current_user)
+            self.materials_tab = MaterialsTab(self.session, self.current_user, get_permissions_manager())
             self.stock_tab = StockTab(self.session, self.current_user)
             
             # Import tab will be created when needed from Settings menu
@@ -121,8 +134,8 @@ class MainWindow(QMainWindow):
             # Connect tab switching signals to refresh labels when items are updated
             self.tab_widget.currentChanged.connect(self.on_tab_changed)
             
-            # Add tabs based on user permissions
-            self.add_tabs_based_on_permissions()
+            # Add grouped tabs based on user permissions
+            self.add_grouped_tabs_based_on_permissions()
             
             layout.addWidget(self.tab_widget)
             
@@ -131,9 +144,10 @@ class MainWindow(QMainWindow):
             
             # Update window title with user info
             role_name = get_role_display_name(self.current_user.role)
-            self.setWindowTitle(f"Orders Management System - {self.current_user.username} ({role_name})")
+            display_name = self.current_user.name if self.current_user.name else self.current_user.username
+            self.setWindowTitle(f"Orders Management System - {display_name} ({role_name})")
             
-            logger.debug("UI initialized successfully")
+
         except Exception as e:
             logger.error(f"Error initializing UI: {e}")
             QMessageBox.critical(None, "UI Error", f"Could not initialize user interface: {str(e)}")
@@ -152,60 +166,42 @@ class MainWindow(QMainWindow):
     
     def add_tabs_based_on_permissions(self):
         """Add tabs based on user permissions"""
-        logger.debug(f"Adding tabs for user: {self.current_user.username} with role: {self.current_user.role.value}")
         
         if self.current_user.can_access_tab('customers'):
-            logger.debug("Adding customers tab")
             self.tab_widget.addTab(self.customers_tab, "Customers")
         
         if self.current_user.can_access_tab('products'):
-            logger.debug("Adding products tab")
             self.tab_widget.addTab(self.products_tab, "Products")
         
         if self.current_user.can_access_tab('items'):
-            logger.debug("Adding items tab")
             self.tab_widget.addTab(self.items_tab, "Items")
         
         if self.current_user.can_access_tab('orders'):
-            logger.debug("Adding orders tab")
             self.tab_widget.addTab(self.orders_tab, "Orders")
             self.tab_widget.addTab(self.order_items_tab, "Order Items")
         
         if self.current_user.can_access_tab('employees'):
-            logger.debug("Adding employees tab")
             self.tab_widget.addTab(self.employees_tab, "Employees")
         
         # Import tab moved to Settings menu
         
         if self.current_user.can_access_tab('labels'):
-            logger.debug("Adding labels tab")
             self.tab_widget.addTab(self.labels_tab, "Labels")
         
         if self.current_user.can_access_tab('production_plans'):
-            logger.debug("Adding production plans tab")
             self.tab_widget.addTab(self.production_plans_tab, "Production Plans")
         
         if self.current_user.can_access_tab('reports'):
-            logger.debug("Adding reports tab")
             self.tab_widget.addTab(self.reports_tab, "Reports")
         
         if self.current_user.can_access_tab('components'):
-            logger.debug("Adding components tab")
             self.tab_widget.addTab(self.components_tab, "Components")
         
+        if self.current_user.can_access_tab('materials'):
+            self.tab_widget.addTab(self.materials_tab, "Materials")
+        
         if self.current_user.can_access_tab('stock'):
-            logger.debug("Adding stock tab")
             self.tab_widget.addTab(self.stock_tab, "Stock")
-        else:
-            logger.debug(f"User cannot access stock tab. can_access_tab('stock') returned: {self.current_user.can_access_tab('stock')}")
-            logger.debug(f"User role: {self.current_user.role.value}")
-            
-            # Check permissions manager directly
-            from utils.permissions import get_permissions_manager
-            pm = get_permissions_manager()
-            logger.debug(f"Permissions manager tab_access: {pm.permissions_data.get('tab_access', {})}")
-            logger.debug(f"User visible tabs: {pm.get_visible_tabs(self.current_user)}")
-            logger.debug(f"Stock tab access for admin: {'admin' in pm.permissions_data.get('tab_access', {}).get('stock', [])}")
     
     def on_tab_changed(self, index):
         """Handle tab switching - refresh labels tab when it becomes active"""
@@ -223,20 +219,16 @@ class MainWindow(QMainWindow):
     def create_menu_bar(self):
         """Create the menu bar with Help options only"""
         menubar = self.menuBar()
-        print("=== Creating menu bar ===")
         
         # Help menu
         help_menu = menubar.addMenu("Help")
-        print("Added Help menu")
         
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
-        print("Added About action to Help menu")
         
         # Also add a toolbar with Settings button
-        toolbar = self.addToolBar("Main Toolbar")
-        print("Created toolbar")
+        self.toolbar = self.addToolBar("Main Toolbar")
         
         # Apply blue theme styling throughout the application with black text
         self.setStyleSheet("""
@@ -473,43 +465,42 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        settings_toolbar_action = QAction("Settings", self)
-        settings_toolbar_action.triggered.connect(self._show_settings)
-        toolbar.addAction(settings_toolbar_action)
-        print("Added Settings button to toolbar")
+        # Add Settings button to toolbar (admin only)
+        if self.current_user.role == UserRole.ADMIN:
+            settings_toolbar_action = QAction("Settings", self)
+            settings_toolbar_action.triggered.connect(self._show_settings)
+            self.toolbar.addAction(settings_toolbar_action)
         
-        # Add Import Data button to toolbar
-        if self.current_user.can_access_tab('import'):
+        # Add Import Data button to toolbar (admin and manager only)
+        if self.current_user.role in [UserRole.ADMIN, UserRole.MANAGER]:
             import_toolbar_action = QAction("Import Data", self)
             import_toolbar_action.triggered.connect(self._show_import_dialog)
-            toolbar.addAction(import_toolbar_action)
-            print("Added Import Data button to toolbar")
+            self.toolbar.addAction(import_toolbar_action)
         
-        # Add Permissions button to toolbar for admin users
+        # Add Permissions button to toolbar for admin users only
         if self.current_user.role == UserRole.ADMIN:
             permissions_toolbar_action = QAction("Permissions", self)
             permissions_toolbar_action.triggered.connect(self._show_permissions)
-            toolbar.addAction(permissions_toolbar_action)
-            print("Added Permissions button to toolbar")
+            self.toolbar.addAction(permissions_toolbar_action)
             
-            # Add Database Management button to toolbar for admin users
+            # Add Database Management button to toolbar for admin users only
             db_management_toolbar_action = QAction("Database", self)
             db_management_toolbar_action.triggered.connect(self._show_database_management)
-            toolbar.addAction(db_management_toolbar_action)
-            print("Added Database Management button to toolbar")
+            self.toolbar.addAction(db_management_toolbar_action)
             
-                    # Add User Management button to toolbar for users with manage_users permission
-        if self.current_user.has_permission('manage_users'):
+            # Add User Management button to toolbar for admin users only
             user_management_toolbar_action = QAction("User Management", self)
             user_management_toolbar_action.triggered.connect(self._show_user_management)
-            toolbar.addAction(user_management_toolbar_action)
-            print("Added User Management button to toolbar")
+            self.toolbar.addAction(user_management_toolbar_action)
         
-        print("=== Menu bar creation completed ===")
+        # Add Logout button to toolbar
+        logout_toolbar_action = QAction("Logout", self)
+        logout_toolbar_action.triggered.connect(self._logout)
+        self.toolbar.addAction(logout_toolbar_action)
     
     def _show_settings(self):
         """Show settings dialog (admin only)"""
-        if self.current_user and self.current_user.has_permission('view_settings'):
+        if self.current_user and self.current_user.has_permission('settings.view'):
             dialog = SettingsDialog(self.session, self, self.current_user)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 QMessageBox.information(
@@ -574,8 +565,9 @@ class MainWindow(QMainWindow):
     def _on_user_updated(self):
         """Handle user update"""
         try:
-            QMessageBox.information(self, "User Updated", 
-                                  "User information has been updated successfully.")
+            # Don't show message box here as it might interfere with the dialog
+            # The dialog already shows its own success message
+            pass
         except Exception as e:
             logger.error(f"Error handling user update: {e}")
     
@@ -583,11 +575,285 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(self, "About", "Orders Management System v1.0")
     
+    def _logout(self):
+        """Handle logout - show login dialog again"""
+        reply = QMessageBox.question(
+            self, 
+            "Logout", 
+            "Are you sure you want to logout?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Clear current user
+            self.current_user = None
+            
+            # Close the current window
+            self.close()
+            
+            # Show login dialog and create new main window if login successful
+            from views.dialogs.login_dialog import LoginDialog
+            login_dialog = LoginDialog(self.session, self)
+            if login_dialog.exec() == QDialog.DialogCode.Accepted:
+                self.current_user = login_dialog.get_user()
+                # Update window title
+                from utils.auth import get_role_display_name
+                role_name = get_role_display_name(self.current_user.role)
+                display_name = self.current_user.name if self.current_user.name else self.current_user.username
+                self.setWindowTitle(f"Orders Management System - {display_name} ({role_name})")
+                
+                # Refresh UI elements for the new user
+                self.refresh_ui_for_user()
+                
+                # Show the window again
+                self.show()
+            else:
+                # User cancelled login, exit application
+                QApplication.quit()
+    
+    def refresh_ui_for_user(self):
+        """Refresh UI elements based on current user permissions"""
+        try:
+            # Clear existing toolbar if it exists
+            if hasattr(self, 'toolbar') and self.toolbar:
+                self.toolbar.clear()
+            
+            # Recreate toolbar with correct permissions
+            self.create_menu_bar()
+            
+            # Update all tab instances with new user
+            self.update_tabs_for_user()
+            
+            # Refresh tab visibility
+            self.refresh_tab_visibility()
+            
+        except Exception as e:
+            logger.error(f"Error refreshing UI for user: {e}")
+            QMessageBox.critical(self, "Error", f"Could not refresh UI: {str(e)}")
+    
+    def update_tabs_for_user(self):
+        """Update all tab instances with the new user object"""
+        try:
+            # Update user object in all tabs
+            if hasattr(self, 'customers_tab'):
+                self.customers_tab.user = self.current_user
+            if hasattr(self, 'products_tab'):
+                self.products_tab.user = self.current_user
+                self.products_tab.refresh_for_user()
+            if hasattr(self, 'items_tab'):
+                self.items_tab.user = self.current_user
+            if hasattr(self, 'orders_tab'):
+                self.orders_tab.user = self.current_user
+            if hasattr(self, 'order_items_tab'):
+                self.order_items_tab.user = self.current_user
+            if hasattr(self, 'employees_tab'):
+                self.employees_tab.user = self.current_user
+            if hasattr(self, 'labels_tab'):
+                self.labels_tab.user = self.current_user
+            if hasattr(self, 'production_plans_tab'):
+                self.production_plans_tab.user = self.current_user
+            if hasattr(self, 'reports_tab'):
+                self.reports_tab.user = self.current_user
+            if hasattr(self, 'components_tab'):
+                self.components_tab.user = self.current_user
+            if hasattr(self, 'materials_tab'):
+                self.materials_tab.user = self.current_user
+            if hasattr(self, 'stock_tab'):
+                self.stock_tab.user = self.current_user
+                
+        except Exception as e:
+            logger.error(f"Error updating tabs for user: {e}")
+    
+    def refresh_tab_visibility(self):
+        """Refresh tab visibility based on current user permissions"""
+        try:
+            # Remove all tabs first
+            while self.tab_widget.count() > 0:
+                self.tab_widget.removeTab(0)
+            
+            # Re-add tabs based on current user permissions
+            self.add_tabs_based_on_permissions()
+            
+        except Exception as e:
+            logger.error(f"Error refreshing tab visibility: {e}")
+    
+    def add_tabs_based_on_permissions(self):
+        """Add tabs based on current user permissions"""
+        try:
+            # Add tabs based on permissions
+            if self.current_user.can_access_tab('customers'):
+                self.tab_widget.addTab(self.customers_tab, "Customers")
+            
+            if self.current_user.can_access_tab('products'):
+                self.tab_widget.addTab(self.products_tab, "Products")
+            
+            if self.current_user.can_access_tab('items'):
+                self.tab_widget.addTab(self.items_tab, "Items")
+            
+            if self.current_user.can_access_tab('orders'):
+                self.tab_widget.addTab(self.orders_tab, "Orders")
+                self.tab_widget.addTab(self.order_items_tab, "Order Items")
+            
+            if self.current_user.can_access_tab('employees'):
+                self.tab_widget.addTab(self.employees_tab, "Employees")
+            
+            if self.current_user.can_access_tab('labels'):
+                self.tab_widget.addTab(self.labels_tab, "Labels")
+                self.tab_widget.addTab(self.label_logs_tab, "Label Logs")
+            
+            if self.current_user.can_access_tab('production_plans'):
+                self.tab_widget.addTab(self.production_plans_tab, "Production Plans")
+            
+            if self.current_user.can_access_tab('reports'):
+                self.tab_widget.addTab(self.reports_tab, "Reports")
+            
+            if self.current_user.can_access_tab('components'):
+                self.tab_widget.addTab(self.components_tab, "Components")
+            
+            if self.current_user.can_access_tab('materials'):
+                self.tab_widget.addTab(self.materials_tab, "Materials")
+            
+            if self.current_user.can_access_tab('stock'):
+                self.tab_widget.addTab(self.stock_tab, "Stock")
+                
+        except Exception as e:
+            logger.error(f"Error adding tabs based on permissions: {e}")
+    
+    def add_grouped_tabs_based_on_permissions(self):
+        """Add grouped tabs based on current user permissions"""
+        try:
+            from PyQt6.QtWidgets import QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel
+            
+            # Create main category tabs
+            # 1. Orders & Items
+            if (self.current_user.can_access_tab('orders') or 
+                self.current_user.can_access_tab('order_items')):
+                
+                orders_widget = QWidget()
+                orders_layout = QVBoxLayout(orders_widget)
+                orders_tab_widget = QTabWidget()
+                
+                if self.current_user.can_access_tab('orders'):
+                    orders_tab_widget.addTab(self.orders_tab, "Orders")
+                if self.current_user.can_access_tab('order_items'):
+                    orders_tab_widget.addTab(self.order_items_tab, "Order Items")
+                
+                orders_layout.addWidget(orders_tab_widget)
+                self.tab_widget.addTab(orders_widget, "📋 Orders && Items")
+            
+            # 2. Business Data
+            if (self.current_user.can_access_tab('customers') or 
+                self.current_user.can_access_tab('products') or 
+                self.current_user.can_access_tab('items') or 
+                self.current_user.can_access_tab('employees')):
+                
+                business_widget = QWidget()
+                business_layout = QVBoxLayout(business_widget)
+                business_tab_widget = QTabWidget()
+                
+                if self.current_user.can_access_tab('customers'):
+                    business_tab_widget.addTab(self.customers_tab, "Customers")
+                if self.current_user.can_access_tab('products'):
+                    business_tab_widget.addTab(self.products_tab, "Products")
+                if self.current_user.can_access_tab('items'):
+                    business_tab_widget.addTab(self.items_tab, "Items")
+                if self.current_user.can_access_tab('employees'):
+                    business_tab_widget.addTab(self.employees_tab, "Employees")
+                
+                business_layout.addWidget(business_tab_widget)
+                self.tab_widget.addTab(business_widget, "🏢 Business Data")
+            
+            # 3. Production
+            if (self.current_user.can_access_tab('components') or 
+                self.current_user.can_access_tab('materials') or 
+                self.current_user.can_access_tab('stock') or 
+                self.current_user.can_access_tab('production_plans')):
+                
+                production_widget = QWidget()
+                production_layout = QVBoxLayout(production_widget)
+                production_tab_widget = QTabWidget()
+                
+                if self.current_user.can_access_tab('components'):
+                    production_tab_widget.addTab(self.components_tab, "Components")
+                if self.current_user.can_access_tab('materials'):
+                    production_tab_widget.addTab(self.materials_tab, "Materials")
+                if self.current_user.can_access_tab('stock'):
+                    production_tab_widget.addTab(self.stock_tab, "Stock")
+                if self.current_user.can_access_tab('production_plans'):
+                    production_tab_widget.addTab(self.production_plans_tab, "Production Plans")
+                
+                production_layout.addWidget(production_tab_widget)
+                self.tab_widget.addTab(production_widget, "🏭 Production")
+            
+            # 4. Labels & Reports
+            if (self.current_user.can_access_tab('labels') or 
+                self.current_user.can_access_tab('label_logs') or 
+                self.current_user.can_access_tab('reports')):
+                
+                labels_widget = QWidget()
+                labels_layout = QVBoxLayout(labels_widget)
+                labels_tab_widget = QTabWidget()
+                
+                if self.current_user.can_access_tab('labels'):
+                    labels_tab_widget.addTab(self.labels_tab, "Labels")
+                if self.current_user.can_access_tab('label_logs'):
+                    labels_tab_widget.addTab(self.label_logs_tab, "Label Logs")
+                if self.current_user.can_access_tab('reports'):
+                    labels_tab_widget.addTab(self.reports_tab, "Reports")
+                
+                labels_layout.addWidget(labels_tab_widget)
+                self.tab_widget.addTab(labels_widget, "🏷️ Labels && Reports")
+                
+        except Exception as e:
+            logger.error(f"Error adding grouped tabs based on permissions: {e}")
+    
+    def on_connection_lost(self, error_message):
+        """Handle database connection loss"""
+        logger.warning(f"Database connection lost: {error_message}")
+        # The database manager will show the error dialog
+        
+    def on_connection_restored(self):
+        """Handle database connection restoration"""
+        logger.info("Database connection restored")
+        QMessageBox.information(self, "Connection Restored", 
+                               "Database connection has been restored successfully.")
+    
+    def get_safe_session(self):
+        """Get a safe database session using the connection manager"""
+        return self.db_manager.get_session()
+    
     def closeEvent(self, event):
-        # Properly close the session when the application exits
-        if self.session:
-            self.session.close()
-            self.Session.remove()
+        """Handle application shutdown gracefully"""
+        try:
+            # Clean up database connection manager
+            if hasattr(self, 'db_manager'):
+                self.db_manager.cleanup()
+            
+            # Close session gracefully
+            if self.session:
+                try:
+                    self.session.close()
+                except Exception as e:
+                    pass
+            
+            # Remove scoped session
+            try:
+                self.Session.remove()
+            except Exception as e:
+                pass
+            
+            # Clean up database engine
+            try:
+                from models.database import cleanup_database_connections
+                cleanup_database_connections()
+            except Exception as e:
+                pass
+            
+        except Exception as e:
+            pass
+        
+        # Always call parent closeEvent
         super().closeEvent(event)
 
 def main():

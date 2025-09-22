@@ -197,21 +197,48 @@ class SettingsDialog(QDialog):
         
     def _load_current_settings(self):
         """Load current settings into the dialog"""
-        current_path = get_database_path()
-        self.db_path_edit.setText(current_path)
+        # Check if Supabase is being used
+        supabase_url = os.environ.get('SUPABASE_URL')
         
-        # Check if it's a network path
-        is_network = (
-            current_path.startswith('//') or 
-            current_path.startswith('\\\\') or
-            'Google Drive' in current_path or
-            'Dropbox' in current_path or
-            'OneDrive' in current_path
-        )
-        
-        self.use_network_db.setChecked(is_network)
-        if is_network:
-            self.network_path_edit.setText(current_path)
+        if supabase_url:
+            # Using Supabase - show connection info
+            self.db_path_edit.setText("Supabase Cloud Database")
+            self.db_path_edit.setEnabled(False)
+            self.use_network_db.setChecked(True)
+            self.use_network_db.setEnabled(False)
+            self.network_path_edit.setText(supabase_url)
+            self.network_path_edit.setEnabled(False)
+            
+            # Update help text for Supabase
+            help_label = self.findChild(QLabel)
+            if help_label:
+                help_label.setText(
+                    "✅ Connected to Supabase Cloud Database\n\n"
+                    "Your application is currently using Supabase PostgreSQL database.\n"
+                    "This provides:\n"
+                    "• Real-time sync between desktop and mobile apps\n"
+                    "• Cloud backup and point-in-time recovery\n"
+                    "• Better performance for large datasets\n"
+                    "• Multi-user support with proper authentication\n\n"
+                    "To switch back to local SQLite, remove the SUPABASE_URL environment variable."
+                )
+        else:
+            # Using local SQLite - show normal path
+            current_path = get_database_path()
+            self.db_path_edit.setText(current_path)
+            
+            # Check if it's a network path
+            is_network = (
+                current_path.startswith('//') or 
+                current_path.startswith('\\\\') or
+                'Google Drive' in current_path or
+                'Dropbox' in current_path or
+                'OneDrive' in current_path
+            )
+            
+            self.use_network_db.setChecked(is_network)
+            if is_network:
+                self.network_path_edit.setText(current_path)
         
         # Load email settings if admin
         if self.current_user and self.current_user.role.value == 'admin':
@@ -241,6 +268,27 @@ class SettingsDialog(QDialog):
     def _test_connection(self):
         """Test database connection"""
         try:
+            # Check if using Supabase
+            supabase_url = os.environ.get('SUPABASE_URL')
+            if supabase_url:
+                # Test Supabase connection
+                import psycopg2
+                conn = psycopg2.connect(supabase_url)
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+                result = cursor.fetchone()
+                conn.close()
+                
+                QMessageBox.information(
+                    self, 
+                    "Connection Test", 
+                    f"✅ Supabase connection successful!\n\n"
+                    f"Connected to: Supabase Cloud Database\n"
+                    f"Status: Active and working"
+                )
+                return
+            
+            # Test local SQLite connection
             path = self._get_selected_path()
             
             if not path:
@@ -264,7 +312,7 @@ class SettingsDialog(QDialog):
             QMessageBox.critical(
                 self, 
                 "Connection Test Failed", 
-                f"Database connection failed:\n\nPath: {path}\n\nError: {str(e)}"
+                f"Database connection failed:\n\nError: {str(e)}"
             )
     
     def _get_selected_path(self):
@@ -277,32 +325,27 @@ class SettingsDialog(QDialog):
     def _save_settings(self):
         """Save the settings"""
         try:
+            # Check if using Supabase
+            supabase_url = os.environ.get('SUPABASE_URL')
+            if supabase_url:
+                QMessageBox.information(
+                    self, 
+                    "Supabase Active", 
+                    "Your application is currently using Supabase Cloud Database.\n\n"
+                    "To change database settings, you need to:\n"
+                    "1. Remove the SUPABASE_URL environment variable\n"
+                    "2. Restart the application\n"
+                    "3. Then configure local database settings"
+                )
+                return
+            
+            # Handle local SQLite settings
             path = self._get_selected_path()
             
             if not path:
                 QMessageBox.warning(self, "Warning", "Please enter a database path")
                 return
             
-            # Check if the directory exists and is writable
-            db_dir = os.path.dirname(path)
-            if db_dir and not os.path.exists(db_dir):
-                QMessageBox.warning(
-                    self, 
-                    "Directory Not Found", 
-                    f"The directory does not exist:\n{db_dir}\n\nPlease create the directory first."
-                )
-                return
-            
-            # Check if we can write to the directory
-            if db_dir and not os.access(db_dir, os.W_OK):
-                QMessageBox.warning(
-                    self, 
-                    "Permission Error", 
-                    f"Cannot write to directory:\n{db_dir}\n\nPlease check permissions."
-                )
-                return
-                
-            # Test the connection before saving using sqlite3 directly
             import sqlite3
             try:
                 conn = sqlite3.connect(path)
@@ -349,11 +392,10 @@ class SettingsDialog(QDialog):
                     )
                     
         except Exception as e:
-            error_msg = str(e)
             QMessageBox.critical(
                 self, 
-                "Connection Error", 
-                f"Database connection failed:\n\nPath: {path}\n\nError: {error_msg}"
+                "Error", 
+                f"An error occurred while saving settings:\n\n{str(e)}"
             )
     
     def _open_barcode_settings(self):
@@ -381,7 +423,7 @@ class SettingsDialog(QDialog):
             self.email_address_edit.setText(config.config.get('sender_email', ''))
             self.email_password_edit.setText(config.config.get('sender_password', ''))
         except Exception as e:
-            print(f"Error loading email settings: {e}")
+            pass
     
     def _save_email_settings(self):
         """Save email settings"""

@@ -15,7 +15,7 @@ from datetime import datetime
 from utils.excel_import import (
     import_customers, import_products, import_items,
     import_employees, import_orders_and_items, import_new_orders_only, import_deliveries,
-    import_components_from_excel, import_product_components_from_excel
+    import_components_from_excel, import_product_components_from_excel, import_component_materials_from_excel
 )
 from utils.permissions import get_permissions_manager
 
@@ -54,6 +54,7 @@ class ImportTab(QWidget):
             "Employees",
             "Components",
             "Product Component Assignments",
+            "Component Materials",
             "Deliveries"
         ])
         type_layout.addWidget(type_label)
@@ -172,6 +173,13 @@ class ImportTab(QWidget):
                 # Don't show duplicate message - the import function already shows it
                 return
                 
+            elif data_type == "Component Materials":
+                success, message = import_component_materials_from_excel(self.session, file_path, self)
+                if success:
+                    self.components_imported.emit()
+                # Don't show duplicate message - the import function already shows it
+                return
+                
             elif data_type == "Deliveries":
                 result = import_deliveries(self.session, file_path)
                 if result['success']:
@@ -215,6 +223,8 @@ class ImportTab(QWidget):
             self.export_components_template()
         elif data_type == "Product Component Assignments":
             self.export_product_components_template()
+        elif data_type == "Component Materials":
+            self.export_component_materials_template()
         elif data_type == "Deliveries":
             self.export_deliveries_template()
         else:
@@ -310,4 +320,94 @@ class ImportTab(QWidget):
                 QMessageBox.information(self, "Success", f"Assignment template exported to {file_path}")
                 
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Error exporting template: {str(e)}") 
+                QMessageBox.critical(self, "Error", f"Error exporting template: {str(e)}")
+    
+    def export_component_materials_template(self):
+        """Export component materials template"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Component Materials Template", "component_materials_template.xlsx", "Excel Files (*.xlsx)"
+        )
+        
+        if file_path:
+            try:
+                # Get available components and materials from database
+                from models.database import Component, Material
+                components = self.session.query(Component).order_by(Component.name).all()
+                materials = self.session.query(Material).order_by(Material.name).all()
+                
+                # Create template with sample data
+                template_data = {
+                    'component_name': ['M6 Nut', 'M8 Bolt', 'O-ring 10mm', 'Steel Washer', 'Aluminum Plate'],
+                    'material_name': ['Steel Hexagon 6mm', 'Steel Hexagon 8mm', 'Rubber O-ring', 'Steel Round 6mm', 'Aluminum Flat 2mm'],
+                    'required_length': [6.0, 20.0, 10.0, 6.0, 50.0],
+                    'cutting_allowance': [2.0, 5.0, 0.0, 2.0, 5.0],
+                    'waste_percentage': [5.0, 5.0, 0.0, 5.0, 3.0],
+                    'notes': ['Standard M6 nut', 'M8x20 bolt', '10mm diameter', 'M6 washer', '2mm thick plate']
+                }
+                
+                df = pd.DataFrame(template_data)
+                df.to_excel(file_path, index=False, sheet_name='Component Materials')
+                
+                # Create additional sheets with available components and materials
+                with pd.ExcelWriter(file_path, engine='openpyxl', mode='a') as writer:
+                    # Components sheet
+                    components_df = pd.DataFrame([{'component_name': c.name} for c in components])
+                    components_df.to_excel(writer, sheet_name='Available Components', index=False)
+                    
+                    # Materials sheet
+                    materials_df = pd.DataFrame([{'material_name': m.name, 'size': m.size or '', 'material_type': m.material_type or ''} for m in materials])
+                    materials_df.to_excel(writer, sheet_name='Available Materials', index=False)
+                
+                QMessageBox.information(self, "Success", f"Component materials template exported to {file_path}")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error exporting template: {str(e)}")
+    
+    def on_data_type_changed(self, data_type):
+        """Handle data type change to show/hide export current button"""
+        # Show export current button only for Deliveries
+        self.export_current_btn.setVisible(data_type == "Deliveries")
+    
+    def export_current_data(self):
+        """Export current data for the selected type"""
+        data_type = self.type_combo.currentText()
+        
+        if data_type == "Deliveries":
+            try:
+                from models.database import Delivery, OrderItem, Order, Customer
+                from datetime import datetime
+                
+                # Get all deliveries with related data
+                deliveries = self.session.query(Delivery).join(OrderItem).join(Order).join(Customer).all()
+                
+                if not deliveries:
+                    QMessageBox.information(self, "No Data", "No deliveries found to export.")
+                    return
+                
+                # Prepare data for export
+                export_data = []
+                for delivery in deliveries:
+                    export_data.append({
+                        'order_number': delivery.order_item.order.order_number,
+                        'customer_name': delivery.order_item.order.customer.name,
+                        'item_code': delivery.order_item.item.customer_code,
+                        'delivery_date': delivery.delivery_date.strftime('%Y-%m-%d'),
+                        'quantity': delivery.quantity,
+                        'notes': delivery.notes or ''
+                    })
+                
+                # Create DataFrame and export
+                df = pd.DataFrame(export_data)
+                
+                file_path, _ = QFileDialog.getSaveFileName(
+                    self, "Export Current Deliveries", "current_deliveries.xlsx", "Excel Files (*.xlsx)"
+                )
+                
+                if file_path:
+                    df.to_excel(file_path, index=False)
+                    QMessageBox.information(self, "Success", f"Exported {len(export_data)} deliveries to {file_path}")
+                    
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error exporting current data: {str(e)}")
+        else:
+            QMessageBox.information(self, "Not Available", f"Export current data is not available for {data_type}") 

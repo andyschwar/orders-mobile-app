@@ -72,20 +72,18 @@ class OrderDialog(QDialog):
         if self.user:
             self.can_see_prices = self.permissions_manager.can_access_column(self.user, "orders", "prices")
         
-        # Set up columns based on permissions
-        if self.can_see_prices:
-            self.items_table.setColumnCount(7)
-            self.items_table.setHorizontalHeaderLabels([
-                "Item", "Customer Code", "Quantity", "Price",
-                "Delivery Date", "Delivered", "Last Delivery"
-            ])
-        else:
-            self.items_table.setColumnCount(6)
-            self.items_table.setHorizontalHeaderLabels([
-                "Item", "Customer Code", "Quantity",
-                "Delivery Date", "Delivered", "Last Delivery"
-            ])
+        # Always create the same number of columns, but hide the price column if user can't see prices
+        self.items_table.setColumnCount(8)
+        self.items_table.setHorizontalHeaderLabels([
+            "Item", "Customer Code", "Quantity", "Price",
+            "Delivery Date", "Delivered", "Last Delivery", "Surface Treatment"
+        ])
+        
+        # Hide price column if user can't see prices
+        if not self.can_see_prices:
+            self.items_table.hideColumn(3)  # Hide the price column
         self.items_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.items_table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed)
         
         # Add item button
         item_toolbar = QHBoxLayout()
@@ -142,18 +140,21 @@ class OrderDialog(QDialog):
             self.items_table.setItem(row, col_index, QTableWidgetItem(str(item_data["quantity"])))
             col_index += 1
             
-            if self.can_see_prices:
-                self.items_table.setItem(row, col_index, QTableWidgetItem(str(item_data["price"])))
-                col_index += 1
+            # Always add price to column 3, even if hidden
+            self.items_table.setItem(row, col_index, QTableWidgetItem(str(item_data["price"])))
+            col_index += 1
             
             self.items_table.setItem(row, col_index, QTableWidgetItem(item_data["delivery_date"].strftime("%Y-%m-%d")))
             col_index += 1
             self.items_table.setItem(row, col_index, QTableWidgetItem("0"))  # Delivered quantity
             col_index += 1
             self.items_table.setItem(row, col_index, QTableWidgetItem(""))   # Last delivery
+            col_index += 1
+            self.items_table.setItem(row, col_index, QTableWidgetItem(item_data["surface_treatment"])) # Surface treatment
             
-            # Store item_id in the first column's data
+            # Store item_id and surface_treatment in the first column's data
             self.items_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, item_data["item_id"])
+            self.items_table.item(row, 0).setData(Qt.ItemDataRole.UserRole + 1, item_data["surface_treatment"])
     
     def remove_item(self):
         selected_rows = self.items_table.selectedItems()
@@ -177,9 +178,9 @@ class OrderDialog(QDialog):
             self.items_table.setItem(row, col_index, QTableWidgetItem(str(item.quantity)))
             col_index += 1
             
-            if self.can_see_prices:
-                self.items_table.setItem(row, col_index, QTableWidgetItem(str(item.price or "")))
-                col_index += 1
+            # Always add price to column 3, even if hidden
+            self.items_table.setItem(row, col_index, QTableWidgetItem(str(item.price or "")))
+            col_index += 1
             
             self.items_table.setItem(row, col_index, QTableWidgetItem(item.delivery_date.strftime("%Y-%m-%d")))
             col_index += 1
@@ -188,35 +189,37 @@ class OrderDialog(QDialog):
             self.items_table.setItem(row, col_index, QTableWidgetItem(
                 item.last_delivery_date.strftime("%Y-%m-%d") if item.last_delivery_date else ""
             ))
+            col_index += 1
+            self.items_table.setItem(row, col_index, QTableWidgetItem(item.surface_treatment or "KATAFOREZA"))
             
             # Store item_id in the first column's data
             self.items_table.item(row, 0).setData(Qt.ItemDataRole.UserRole, item.item_id)
+            self.items_table.item(row, 0).setData(Qt.ItemDataRole.UserRole + 1, item.surface_treatment or "KATAFOREZA")
     
     def get_data(self):
         items_data = []
         for row in range(self.items_table.rowCount()):
             item_id = self.items_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            surface_treatment = self.items_table.item(row, 0).data(Qt.ItemDataRole.UserRole + 1) or "KATAFOREZA"
             quantity = int(self.items_table.item(row, 2).text())
             
-            # Handle price based on permissions
-            if self.can_see_prices:
-                try:
-                    price = parse_price(self.items_table.item(row, 3).text())
-                except ValueError as e:
-                    QMessageBox.warning(self, "Validation Error", str(e))
-                    return None
-                delivery_date_col = 4
-            else:
-                price = 0.0  # Default price for users who can't see prices
-                delivery_date_col = 3
+            # Always parse price from column 3, regardless of permissions
+            # The permission only controls whether prices are displayed, not whether they can be entered
+            try:
+                price = parse_price(self.items_table.item(row, 3).text())
+            except ValueError as e:
+                QMessageBox.warning(self, "Validation Error", str(e))
+                return None
             
-            delivery_date = datetime.strptime(self.items_table.item(row, delivery_date_col).text(), "%Y-%m-%d").date()
+            # Delivery date is always in column 4 (after price column)
+            delivery_date = datetime.strptime(self.items_table.item(row, 4).text(), "%Y-%m-%d").date()
             
             items_data.append({
                 "item_id": item_id,
                 "quantity": quantity,
                 "price": price,
-                "delivery_date": delivery_date
+                "delivery_date": delivery_date,
+                "surface_treatment": surface_treatment
             })
         
         return {
@@ -403,11 +406,23 @@ class OrderItemDialog(QDialog):
         self.delivery_date_input.setCalendarPopup(True)
         self.delivery_date_input.setDate(QDate.currentDate())
         
+        # Surface treatment
+        surface_layout = QHBoxLayout()
+        self.surface_treatment_combo = QComboBox()
+        self.surface_treatment_combo.addItems(["KATAFOREZA", "FOSFAT", "ZINEK", "NONE"])
+        surface_layout.addWidget(self.surface_treatment_combo)
+        
+        # Auto-calculate button
+        self.auto_calc_button = QPushButton("Auto Calculate")
+        self.auto_calc_button.clicked.connect(self.auto_calculate_surface_treatment)
+        surface_layout.addWidget(self.auto_calc_button)
+        
         form_layout = QFormLayout()
         form_layout.addRow("Item*:", self.item_combo)
         form_layout.addRow("Quantity*:", self.quantity_input)
         form_layout.addRow("Price:", self.price_input)
         form_layout.addRow("Delivery Date*:", self.delivery_date_input)
+        form_layout.addRow("Surface Treatment:", surface_layout)
         layout.addLayout(form_layout)
         
         # Buttons
@@ -465,6 +480,38 @@ class OrderItemDialog(QDialog):
             )
             self.item_ids.append(item.id)
     
+    def auto_calculate_surface_treatment(self):
+        """Auto-calculate surface treatment based on selected item"""
+        try:
+            if self.item_combo.currentIndex() >= 0:
+                item_id = self.item_ids[self.item_combo.currentIndex()]
+                item = self.session.query(Item).get(item_id)
+                
+                if item:
+                    # Create a temporary OrderItem to calculate surface treatment
+                    from models.database import OrderItem
+                    temp_order_item = OrderItem()
+                    temp_order_item.item = item
+                    
+                    calculated_treatment = temp_order_item.calculate_surface_treatment()
+                    
+                    # Set the calculated treatment in the combo
+                    index = self.surface_treatment_combo.findText(calculated_treatment)
+                    if index >= 0:
+                        self.surface_treatment_combo.setCurrentIndex(index)
+                        QMessageBox.information(self, "Auto Calculated", 
+                            f"Surface treatment calculated: {calculated_treatment}\n\n"
+                            f"Customer: {item.customer.name_index}\n"
+                            f"Item: {item.customer_item_name or item.customer_code}")
+                    else:
+                        QMessageBox.warning(self, "Error", f"Could not set calculated treatment: {calculated_treatment}")
+                else:
+                    QMessageBox.warning(self, "Error", "Could not find selected item")
+            else:
+                QMessageBox.warning(self, "Error", "Please select an item first")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error calculating surface treatment: {str(e)}")
+    
     def filter_items(self):
         """Filter items based on search text"""
         self.update_item_combo()
@@ -479,7 +526,8 @@ class OrderItemDialog(QDialog):
                 "item_id": self.item_ids[self.item_combo.currentIndex()],
                 "quantity": int(self.quantity_input.text()),
                 "price": parse_price(self.price_input.text()),
-                "delivery_date": self.delivery_date_input.date().toPyDate()
+                "delivery_date": self.delivery_date_input.date().toPyDate(),
+                "surface_treatment": self.surface_treatment_combo.currentText()
             }
         except ValueError as e:
             QMessageBox.warning(self, "Validation Error", str(e))

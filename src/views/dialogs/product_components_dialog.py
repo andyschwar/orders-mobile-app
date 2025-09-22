@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QMessageBox, QHeaderView, QLabel, QDoubleSpinBox,
-    QComboBox, QSpinBox
+    QComboBox, QSpinBox, QMenu
 )
 from PyQt6.QtCore import Qt
 from sqlalchemy.orm import Session
@@ -37,9 +37,17 @@ class ProductComponentsDialog(QDialog):
         add_layout = QFormLayout()
         
         # Component selection
+        component_layout = QHBoxLayout()
         self.component_combo = QComboBox()
         self.component_combo.setMinimumWidth(300)
-        add_layout.addRow("Component:", self.component_combo)
+        component_layout.addWidget(self.component_combo)
+        
+        # Create new component button
+        create_component_button = QPushButton("Create New")
+        create_component_button.clicked.connect(self.create_new_component)
+        component_layout.addWidget(create_component_button)
+        
+        add_layout.addRow("Component:", component_layout)
         
         # Quantity
         self.quantity_input = QDoubleSpinBox()
@@ -73,6 +81,10 @@ class ProductComponentsDialog(QDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         
+        # Enable context menu for the table
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        
         layout.addWidget(self.table)
         
         # Summary
@@ -82,6 +94,15 @@ class ProductComponentsDialog(QDialog):
         
         # Buttons
         button_layout = QHBoxLayout()
+        
+        # Remove component button
+        remove_button = QPushButton("Remove Selected Component")
+        remove_button.clicked.connect(self.remove_component)
+        remove_button.setStyleSheet("QPushButton { background-color: #ff6b6b; color: white; }")
+        button_layout.addWidget(remove_button)
+        
+        button_layout.addStretch()  # Add space between buttons
+        
         close_button = QPushButton("Close")
         close_button.clicked.connect(self.accept)
         button_layout.addWidget(close_button)
@@ -242,4 +263,63 @@ class ProductComponentsDialog(QDialog):
                     
             except Exception as e:
                 self.session.rollback()
-                QMessageBox.critical(self, "Error", f"Error removing component: {str(e)}") 
+                QMessageBox.critical(self, "Error", f"Error removing component: {str(e)}")
+    
+    def create_new_component(self):
+        """Create a new component and add it to the combo box"""
+        from views.tabs.components_tab import ComponentDialog
+        
+        # Create a new component dialog
+        dialog = ComponentDialog(self.session, None, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            data = dialog.get_data()
+            if data:
+                try:
+                    # Create the new component
+                    new_component = Component(
+                        name=data['name'],
+                        description=data.get('description', ''),
+                        category=data.get('category', ''),
+                        supplier=data.get('supplier', ''),
+                        buy_price=data.get('buy_price', 0.0),
+                        material_price=data.get('material_price', 0.0),
+                        manufacturing_price=data.get('manufacturing_price', 0.0),
+                        surface_treatment_price=data.get('surface_treatment_price', 0.0),
+                        unit_cost=data.get('unit_cost', 0.0),
+                        cost_currency=data.get('cost_currency', 'CZK'),
+                        component_type=data.get('component_type', 'bought')
+                    )
+                    
+                    self.session.add(new_component)
+                    self.session.commit()
+                    
+                    # Refresh the components list
+                    self.load_components()
+                    
+                    # Select the newly created component
+                    for i in range(self.component_combo.count()):
+                        if self.component_combo.itemData(i) == new_component.id:
+                            self.component_combo.setCurrentIndex(i)
+                            break
+                    
+                    QMessageBox.information(self, "Success", f"Component '{new_component.name}' created successfully")
+                    
+                except Exception as e:
+                    self.session.rollback()
+                    QMessageBox.critical(self, "Error", f"Error creating component: {str(e)}")
+    
+    def show_context_menu(self, position):
+        """Show context menu for the components table"""
+        item = self.table.itemAt(position)
+        if item is None:
+            return
+        
+        # Create context menu
+        context_menu = QMenu(self)
+        
+        # Add remove action
+        remove_action = context_menu.addAction("Remove Component")
+        remove_action.triggered.connect(self.remove_component)
+        
+        # Show context menu
+        context_menu.exec(self.table.mapToGlobal(position)) 

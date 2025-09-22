@@ -1582,6 +1582,25 @@ def labels_page():
                 </select>
             </div>
             
+            <div class="form-group">
+                <label for="font_size">Font Size:</label>
+                <select id="font_size" class="form-control">
+                    <option value="10">Small (10pt)</option>
+                    <option value="12" selected>Standard (12pt)</option>
+                    <option value="14">Large (14pt)</option>
+                    <option value="16">Extra Large (16pt)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="label_style">Label Style:</label>
+                <select id="label_style" class="form-control">
+                    <option value="modern" selected>Modern</option>
+                    <option value="classic">Classic</option>
+                    <option value="compact">Compact</option>
+                </select>
+            </div>
+            
             <div class="button-group">
                 <button onclick="addToCart()" class="btn btn-primary">Add to Cart</button>
                 <button id="generateBtn" onclick="generateLabel()" class="btn btn-success">Generate Single Label</button>
@@ -1786,6 +1805,8 @@ def labels_page():
                 const quantity = document.getElementById('quantity').value;
                 const deliveryDate = document.getElementById('delivery_date').value;
                 const layout = document.getElementById('layout').value;
+                const fontSize = document.getElementById('font_size').value;
+                const labelStyle = document.getElementById('label_style').value;
                 
                 if (!customerId || !orderId || !itemCode || !quantity || !deliveryDate) {
                     alert('Please select customer, order, item, delivery date and set quantity');
@@ -1808,6 +1829,8 @@ def labels_page():
                             quantity: parseInt(quantity),
                             delivery_date: deliveryDate,
                             layout: layout,
+                            font_size: parseInt(fontSize),
+                            label_style: labelStyle,
                             username: username
                         })
                     });
@@ -1859,6 +1882,8 @@ def labels_page():
                 const quantity = document.getElementById('quantity').value;
                 const deliveryDate = document.getElementById('delivery_date').value;
                 const layout = document.getElementById('layout').value;
+                const fontSize = document.getElementById('font_size').value;
+                const labelStyle = document.getElementById('label_style').value;
                 
                 if (!customerId || !orderId || !itemCode || !quantity || !deliveryDate) {
                     alert('Please select customer, order, item, delivery date and set quantity');
@@ -1877,7 +1902,9 @@ def labels_page():
                             item_code: itemCode,
                             quantity: parseInt(quantity),
                             delivery_date: deliveryDate,
-                            layout: layout
+                            layout: layout,
+                            font_size: parseInt(fontSize),
+                            label_style: labelStyle
                         })
                     });
                     
@@ -1991,6 +2018,8 @@ def labels_page():
                 // Get username from prompt or use default
                 const username = prompt('Enter your name (optional):') || 'mobile_user';
                 const layout = document.getElementById('layout').value;
+                const fontSize = document.getElementById('font_size').value;
+                const labelStyle = document.getElementById('label_style').value;
                 
                 try {
                     const response = await fetch('/api/cart/generate-labels', {
@@ -2000,7 +2029,9 @@ def labels_page():
                         },
                         body: JSON.stringify({
                             username: username,
-                            layout: layout
+                            layout: layout,
+                            font_size: parseInt(fontSize),
+                            label_style: labelStyle
                         })
                     });
                     
@@ -2358,38 +2389,46 @@ def generate_label():
             if not order_item:
                 return jsonify({'error': 'Order item not found'}), 404
             
-            # Create fake order item for label generation
-            fake_order_item = FakeOrderItem(
-                order_data={
-                    'order_number': order_item.order.order_number,
-                    'customer_name': order_item.order.customer.name,
-                    'customer_name_index': order_item.order.customer.name_index
-                },
-                item_data={
-                    'customer_item_name': order_item.item.customer_item_name,
-                    'customer_code': order_item.item.customer_code,
-                    'product_name': order_item.item.product.name,
-                    'weight_per_unit': order_item.item.product.weight_per_unit
-                },
-                quantity=data.get('quantity', 1),
-                delivery_date=order_item.delivery_date
-            )
+            # Get quantity from request data
+            quantity = data.get('quantity', 1)
             
             # Generate label
             export_dir = tempfile.mkdtemp()
             label_generator = LabelGenerator(export_dir)
             
-            # Format the order item for the label generator
+            # Get customer barcode settings from database
+            customer = order.customer
+            include_barcodes = getattr(customer, 'barcodes_enabled', False) if hasattr(customer, 'barcodes_enabled') else False
+            
+            # Get additional formatting options from request
+            font_size = data.get('font_size', 12)
+            label_style = data.get('label_style', 'modern')
+            username = data.get('username', 'mobile_user')
+            
+            # Create formatting options with customer settings
+            formatting_options = {
+                "label_size": "standard",
+                "layout_type": data.get('layout', '2x3'),
+                "include_barcodes": include_barcodes,
+                "include_weight": True,
+                "include_delivery_date": True,
+                "include_supplier_info": True,
+                "font_size": font_size,
+                "label_style": label_style
+            }
+            
+            # Use the real order item from the database
             delivery_items = [{
-                "order_item": fake_order_item,
-                "quantity": fake_order_item.quantity
+                "order_item": order_item,
+                "quantity": quantity
             }]
             
             try:
                 print(f"🔍 Generating single label with {len(delivery_items)} items")
                 print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
+                print(f"🔍 Customer barcode settings: {include_barcodes}")
                 
-                pdf_path = label_generator.generate_labels(delivery_items)
+                pdf_path = label_generator.generate_labels(delivery_items, include_barcodes=include_barcodes, formatting_options=formatting_options, printed_by=username, session=db_session)
                 
                 print(f"🔍 PDF generated at: {pdf_path}")
                 
@@ -2543,6 +2582,37 @@ def generate_cart_labels():
         export_dir = tempfile.mkdtemp()
         label_generator = LabelGenerator(export_dir)
         
+        # Get customer barcode settings from the first item in cart
+        include_barcodes = True  # Default to True for cart export
+        if label_cart:
+            try:
+                first_item = label_cart[0]
+                if hasattr(first_item, 'order') and hasattr(first_item.order, 'customer'):
+                    customer = first_item.order.customer
+                    include_barcodes = getattr(customer, 'barcodes_enabled', False) if hasattr(customer, 'barcodes_enabled') else False
+            except Exception as e:
+                print(f"Error getting customer barcode settings: {e}")
+                include_barcodes = True  # Fallback to True
+        
+        # Get additional formatting options from request
+        data = request.json or {}
+        font_size = data.get('font_size', 12)
+        label_style = data.get('label_style', 'modern')
+        layout = data.get('layout', '2x3')
+        username = data.get('username', 'mobile_user')
+        
+        # Create formatting options with customer settings
+        formatting_options = {
+            "label_size": "standard",
+            "layout_type": layout,
+            "include_barcodes": include_barcodes,
+            "include_weight": True,
+            "include_delivery_date": True,
+            "include_supplier_info": True,
+            "font_size": font_size,
+            "label_style": label_style
+        }
+        
         # Format cart items for the label generator
         delivery_items = []
         for item in label_cart:
@@ -2554,8 +2624,9 @@ def generate_cart_labels():
         try:
             print(f"🔍 Generating cart labels with {len(delivery_items)} items")
             print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
+            print(f"🔍 Customer barcode settings: {include_barcodes}")
             
-            pdf_path = label_generator.generate_labels(delivery_items)
+            pdf_path = label_generator.generate_labels(delivery_items, include_barcodes=include_barcodes, formatting_options=formatting_options, printed_by=username, session=db_session)
             
             print(f"🔍 PDF generated at: {pdf_path}")
             
@@ -2658,7 +2729,11 @@ def get_customers():
                     'name_index': customer.name_index,
                     'display_name': f"{customer.name_index} ({customer.name})" if customer.name_index else customer.name,
                     'city': customer.city,
-                    'country': customer.country
+                    'country': customer.country,
+                    'barcodes_enabled': getattr(customer, 'barcodes_enabled', False),
+                    'order_barcode_prefix': getattr(customer, 'order_barcode_prefix', 'N'),
+                    'item_barcode_prefix': getattr(customer, 'item_barcode_prefix', 'P'),
+                    'quantity_barcode_prefix': getattr(customer, 'quantity_barcode_prefix', 'U')
                 })
             
             print(f"✅ Returning {len(customers_data)} customers")

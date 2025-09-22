@@ -298,7 +298,7 @@ class EmailConfigDialog(QDialog):
             self.email_input.setText(config.config.get('sender_email', ''))
             self.password_input.setText(config.config.get('sender_password', ''))
         except Exception as e:
-            print(f"Error loading email config: {e}")
+            pass
     
     def save_config(self):
         """Save email configuration"""

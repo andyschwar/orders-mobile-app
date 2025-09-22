@@ -21,7 +21,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 
 # Set up logging with more detailed format
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout
 )
@@ -172,7 +172,7 @@ class LabelGenerator:
 
     def create_barcode(self, data: str):
         """Create a Code128 barcode Flowable for ReportLab"""
-        return code128.Code128(data, barHeight=30, barWidth=1.0)
+        return code128.Code128(data, barHeight=20, barWidth=1.2, humanReadable=True, fontSize=8, fontName='Helvetica')
 
     def _draw_label(self, canvas, x, y, order_item, box_qty, box_num, total_boxes, include_barcodes=True):
 
@@ -237,13 +237,13 @@ class LabelGenerator:
                 
                 # Generate barcodes using customer-specific prefixes
                 customer = order_item.order.customer
-                order_barcode_data = f"{customer.order_barcode_prefix or 'N'}{order_item.order.order_number}"
+                order_barcode_data = f"{customer.order_barcode_prefix or ''}{order_item.order.order_number}"
                 order_barcode_flowable = self.create_barcode(order_barcode_data)
                 
-                item_barcode_data = f"{customer.item_barcode_prefix or 'P'}{order_item.item.customer_code}"
+                item_barcode_data = f"{customer.item_barcode_prefix or ''}{order_item.item.customer_code}"
                 item_barcode_flowable = self.create_barcode(item_barcode_data)
                 
-                qty_barcode_data = f"{customer.quantity_barcode_prefix or 'U'}{box_qty}"
+                qty_barcode_data = f"{customer.quantity_barcode_prefix or ''}{box_qty}"
                 qty_barcode_flowable = self.create_barcode(qty_barcode_data)
                 
                 # Calculate barcode positions
@@ -253,13 +253,13 @@ class LabelGenerator:
                 # Draw barcodes
                 order_barcode_flowable.drawOn(canvas, 30*mm, 45*mm)
                 canvas.setFont("Helvetica", 6)
-                canvas.drawString(30*mm, 44*mm, f"{customer.order_barcode_prefix or 'N'}{order_item.order.order_number}")
+                canvas.drawString(30*mm, 44*mm, f"{customer.order_barcode_prefix or ''}{order_item.order.order_number}")
                 
                 item_barcode_flowable.drawOn(canvas, 30*mm, 35*mm)
-                canvas.drawString(30*mm, 34*mm, f"{customer.item_barcode_prefix or 'P'}{order_item.item.customer_code}")
+                canvas.drawString(30*mm, 34*mm, f"{customer.item_barcode_prefix or ''}{order_item.item.customer_code}")
                 
                 qty_barcode_flowable.drawOn(canvas, 30*mm, 28*mm)
-                canvas.drawString(30*mm, 27*mm, f"{customer.quantity_barcode_prefix or 'U'}{box_qty}")
+                canvas.drawString(30*mm, 27*mm, f"{customer.quantity_barcode_prefix or ''}{box_qty}")
                 
                 print("Barcodes generated and drawn successfully")
                 
@@ -282,8 +282,10 @@ class LabelGenerator:
         canvas.restoreState()
         print("Label drawing completed")
 
-    def generate_labels(self, delivery_items, include_barcodes=True, formatting_options=None):
-
+    def generate_labels(self, delivery_items, include_barcodes=True, formatting_options=None, printed_by=None, session=None):
+        print(f"[DEBUG] LabelGenerator.generate_labels called with {len(delivery_items)} items")
+        print(f"[DEBUG] include_barcodes: {include_barcodes}")
+        print(f"[DEBUG] formatting_options: {formatting_options}")
         
         # Use formatting options if provided, otherwise use defaults
         if formatting_options is None:
@@ -311,7 +313,7 @@ class LabelGenerator:
         styles = getSampleStyleSheet()
         custom_style = styles["Normal"]
         custom_style.fontSize = font_size
-        custom_style.fontName = "Helvetica"
+        custom_style.fontName = "Helvetica-Bold"
         
         # Get timestamp and customer name index for filename
         from datetime import datetime
@@ -335,13 +337,18 @@ class LabelGenerator:
         
         for item in delivery_items:
             try:
+                print(f"[DEBUG] Processing item: {item}")
                 order_item = item["order_item"]
                 boxes = item.get("boxes", [item["quantity"]])
                 name_index = replace_czech_chars(order_item.order.customer.name_index)
                 is_barcode_customer = order_item.order.customer.barcodes_enabled or False
-                
+                print(f"[DEBUG] order_item: {order_item}")
+                print(f"[DEBUG] boxes: {boxes}")
+                print(f"[DEBUG] name_index: {name_index}")
+                print(f"[DEBUG] is_barcode_customer: {is_barcode_customer}")
                 
             except Exception as e:
+                print(f"[DEBUG] Error processing item: {e}")
                 continue
             
             for box_num, box_qty in enumerate(boxes, 1):
@@ -364,18 +371,33 @@ class LabelGenerator:
                 label_flowables.append(Paragraph(f"Item: {order_item.item.customer_item_name or order_item.item.product.name}", custom_style))
                 label_flowables.append(Paragraph(f"Code: {order_item.item.customer_code}", custom_style))
                 
-                # Add barcodes if enabled
+                # Add barcodes if enabled, or placeholder for consistent height
+                print(f"[DEBUG] Barcode check: include_barcodes={formatting_options.get('include_barcodes', include_barcodes)}, is_barcode_customer={is_barcode_customer}")
                 if formatting_options.get("include_barcodes", include_barcodes) and is_barcode_customer:
                     customer = order_item.order.customer
-                    label_flowables.append(self.create_barcode(f"{customer.item_barcode_prefix or 'P'}{order_item.item.customer_code}"))
+                    # Use prefix if set, otherwise no prefix
+                    item_barcode = f"{customer.item_barcode_prefix or ''}{order_item.item.customer_code}"
+                    print(f"[DEBUG] Generating item barcode: {item_barcode}")
+                    label_flowables.append(self.create_barcode(item_barcode))
+                else:
+                    print(f"[DEBUG] Skipping item barcode generation")
+                    # Add placeholder space to maintain consistent height
+                    label_flowables.append(Paragraph("<br/><br/>", custom_style))
                 
                 # Add order info
                 label_flowables.append(Paragraph(f"Order: {order_item.order.order_number}", custom_style))
                 
-                # Add order barcode if enabled
+                # Add order barcode if enabled, or placeholder for consistent height
                 if formatting_options.get("include_barcodes", include_barcodes) and is_barcode_customer:
                     customer = order_item.order.customer
-                    label_flowables.append(self.create_barcode(f"{customer.order_barcode_prefix or 'N'}{order_item.order.order_number}"))
+                    # Use prefix if set, otherwise no prefix
+                    order_barcode = f"{customer.order_barcode_prefix or ''}{order_item.order.order_number}"
+                    print(f"[DEBUG] Generating order barcode: {order_barcode}")
+                    label_flowables.append(self.create_barcode(order_barcode))
+                else:
+                    print(f"[DEBUG] Skipping order barcode generation")
+                    # Add placeholder space to maintain consistent height
+                    label_flowables.append(Paragraph("<br/><br/>", custom_style))
                 
                 # Add quantity
                 label_flowables.append(Paragraph(f"Quantity: {box_qty}", custom_style))
@@ -392,10 +414,17 @@ class LabelGenerator:
                     # Continue without weight
                     pass
                 
-                # Add quantity barcode if enabled
+                # Add quantity barcode if enabled, or placeholder for consistent height
                 if formatting_options.get("include_barcodes", include_barcodes) and is_barcode_customer:
                     customer = order_item.order.customer
-                    label_flowables.append(self.create_barcode(f"{customer.quantity_barcode_prefix or 'U'}{box_qty}"))
+                    # Use prefix if set, otherwise no prefix
+                    qty_barcode = f"{customer.quantity_barcode_prefix or ''}{box_qty}"
+                    print(f"[DEBUG] Generating quantity barcode: {qty_barcode}")
+                    label_flowables.append(self.create_barcode(qty_barcode))
+                else:
+                    print(f"[DEBUG] Skipping quantity barcode generation")
+                    # Add placeholder space to maintain consistent height
+                    label_flowables.append(Paragraph("<br/><br/>", custom_style))
                 
                 # Add supplier info if enabled
                 if formatting_options.get("include_supplier_info", True):
@@ -409,7 +438,6 @@ class LabelGenerator:
                         # Create a table with bottom border for the delivery date
                         delivery_table = Table([[delivery_para]], colWidths=[label_width-4*mm])
                         delivery_table.setStyle(TableStyle([
-                            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.black),
                             ('LEFTPADDING', (0, 0), (-1, -1), 0),
                             ('RIGHTPADDING', (0, 0), (-1, -1), 0),
                             ('TOPPADDING', (0, 0), (-1, -1), 0),
@@ -465,6 +493,8 @@ class LabelGenerator:
                     ('RIGHTPADDING', (0, 0), (-1, -1), 2*mm),
                     ('TOPPADDING', (0, 0), (-1, -1), 2*mm),
                     ('BOTTOMPADDING', (0, 0), (-1, -1), 2*mm),
+                    # Force consistent height by setting minimum row height
+                    ('MINROWHEIGHT', (0, 0), (-1, -1), label_height),
                 ]))
                 story.append(table)
                 
@@ -482,7 +512,77 @@ class LabelGenerator:
             bottomMargin=5*mm
         )
         doc.build(story)
+        
+        # Log the printed labels if session is provided
+        print(f"[DEBUG] Logging check: session={session is not None}, printed_by={printed_by}")
+        if session and printed_by:
+            print(f"[DEBUG] Calling _log_printed_labels with {len(delivery_items)} items")
+            self._log_printed_labels(delivery_items, include_barcodes, filename, printed_by, session)
+        else:
+            print(f"[DEBUG] Skipping logging: session={session is not None}, printed_by={printed_by}")
+        
         return filename
+
+    def _log_printed_labels(self, delivery_items, include_barcodes, pdf_filename, printed_by, session):
+        """Log printed labels to the database"""
+        print(f"[DEBUG] _log_printed_labels called with {len(delivery_items)} items")
+        try:
+            from src.models.database import LabelLog
+            
+            for item in delivery_items:
+                order_item = item["order_item"]
+                boxes = item.get("boxes", [item["quantity"]])
+                
+                # Get customer information
+                customer = order_item.order.customer
+                customer_name = customer.name
+                customer_name_index = customer.name_index
+                
+                # Get item information
+                item_name = order_item.item.customer_item_name or order_item.item.product.name
+                item_code = order_item.item.customer_code
+                
+                # Get barcode information
+                barcodes_included = include_barcodes or customer.barcodes_enabled
+                item_barcode = f"{customer.item_barcode_prefix or ''}{item_code}" if barcodes_included else None
+                order_barcode = f"{customer.order_barcode_prefix or ''}{order_item.order.order_number}" if barcodes_included else None
+                
+                # Log each box/quantity as a separate entry
+                for box_qty in boxes:
+                    quantity_barcode = f"{customer.quantity_barcode_prefix or ''}{box_qty}" if barcodes_included else None
+                    
+                    # Handle fake objects that don't have database IDs
+                    order_item_id = getattr(order_item, 'id', None)
+                    if order_item_id is None:
+                        # For fake objects, we can't link to a real order_item
+                        # We'll set it to None and handle it in the database
+                        order_item_id = None
+                    
+                    label_log = LabelLog(
+                        order_item_id=order_item_id,
+                        customer_name=customer_name,
+                        customer_name_index=customer_name_index,
+                        order_number=order_item.order.order_number,
+                        item_code=item_code,
+                        item_name=item_name,
+                        quantity=box_qty,
+                        printed_quantity=1,  # Each box gets one label
+                        barcodes_included=barcodes_included,
+                        item_barcode=item_barcode,
+                        order_barcode=order_barcode,
+                        quantity_barcode=quantity_barcode,
+                        printed_by=printed_by,
+                        pdf_filename=pdf_filename
+                    )
+                    
+                    session.add(label_log)
+            
+            session.commit()
+            print(f"[DEBUG] Logged {len(delivery_items)} label print jobs to database")
+            
+        except Exception as e:
+            print(f"[DEBUG] Error logging printed labels: {e}")
+            session.rollback()
 
     def preview_label(self, order_item, box_qty, box_num, total_boxes):
         """Generate a single preview label for testing"""

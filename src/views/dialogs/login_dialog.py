@@ -141,10 +141,12 @@ class LoginDialog(QDialog):
         if user:
             self.user = user
             role_name = get_role_display_name(user.role)
+            # Use name if available, otherwise fall back to username
+            display_name = user.name if user.name else user.username
             QMessageBox.information(
                 self, 
                 "Login Successful", 
-                f"Welcome, {user.username}!\nRole: {role_name}"
+                f"Welcome, {display_name}!\nRole: {role_name}"
             )
             self.login_successful.emit(user)
             self.accept()

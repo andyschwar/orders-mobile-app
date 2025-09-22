@@ -9,6 +9,7 @@ from sqlalchemy import or_
 from datetime import datetime
 from models.database import Item, Customer, Product
 from utils.permissions import get_permissions_manager
+from utils.database_decorators import with_connection_test
 
 class ItemDialog(QDialog):
     def __init__(self, session: Session, item=None, parent=None):
@@ -211,22 +212,23 @@ class ItemsTab(QWidget):
                 
         return None
     
+    @with_connection_test
     def refresh_data(self):
         try:
             items = self.session.query(Item).join(Customer).join(Product).order_by(
                 Customer.name,
                 Product.name
             ).all()
-            print(f"Refreshing data: found {len(items)} items")
+    
             self.populate_table(items)
         except Exception as e:
-            print(f"Error refreshing data: {str(e)}")
+    
             QMessageBox.critical(self, "Error", f"Error refreshing data: {str(e)}")
     
     def search_items(self, text):
         try:
             if not text:
-                print("Search text is empty, refreshing data")
+        
                 # Clear the table first
                 self.table.clearContents()
                 self.table.setRowCount(0)
@@ -248,12 +250,13 @@ class ItemsTab(QWidget):
                 Product.name
             ).all()
             
-            print(f"Search '{text}': found {len(items)} items")
+    
             self.populate_table(items)
         except Exception as e:
-            print(f"Error searching items: {str(e)}")
+    
             QMessageBox.critical(self, "Error", f"Error searching items: {str(e)}")
     
+    @with_connection_test
     def add_item(self):
         # Check permissions
         if self.user and not self.permissions_manager.has_permission(self.user, "items", "create"):
@@ -299,6 +302,7 @@ class ItemsTab(QWidget):
                     self.session.rollback()
                     QMessageBox.critical(self, "Error", f"Error updating item: {str(e)}")
     
+    @with_connection_test
     def delete_item(self):
         # Check permissions
         if self.user and not self.permissions_manager.has_permission(self.user, "items", "delete"):

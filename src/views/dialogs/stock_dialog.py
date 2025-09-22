@@ -26,7 +26,6 @@ class StockTransactionDialog(QDialog):
         try:
             event.accept()
         except Exception as e:
-            print(f"Error in closeEvent: {e}")
             event.accept()
         
     def init_ui(self):
@@ -160,7 +159,6 @@ class StockDialog(QDialog):
         try:
             event.accept()
         except Exception as e:
-            print(f"Error in closeEvent: {e}")
             event.accept()
         
     def init_ui(self):
@@ -257,7 +255,7 @@ class StockDialog(QDialog):
             for category in categories:
                 self.category_filter.addItem(category[0], category[0])
         except Exception as e:
-            print(f"Error loading categories: {e}")
+            pass
             self.category_filter.clear()
             self.category_filter.addItem("All Categories", None)
     
@@ -282,7 +280,7 @@ class StockDialog(QDialog):
             for component in components:
                 self.component_combo.addItem(component.name, component.id)
         except Exception as e:
-            print(f"Error loading components: {e}")
+            pass
             self.component_combo.clear()
     
     def populate_fields(self):
@@ -347,7 +345,6 @@ class StockManagementDialog(QDialog):
         try:
             event.accept()
         except Exception as e:
-            print(f"Error in closeEvent: {e}")
             event.accept()
         
     def init_ui(self):
@@ -511,7 +508,7 @@ class StockManagementDialog(QDialog):
                         self.session.rollback()
                         QMessageBox.critical(self, "Error", f"Error adding stock entry: {str(e)}")
         except Exception as e:
-            print(f"Error in add_stock: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error opening stock dialog: {str(e)}")
     
     def edit_stock(self):
@@ -553,7 +550,7 @@ class StockManagementDialog(QDialog):
             else:
                 QMessageBox.warning(self, "Error", "Component not found")
         except Exception as e:
-            print(f"Error in edit_stock: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error editing stock: {str(e)}")
     
     def add_transaction(self):
@@ -600,7 +597,7 @@ class StockManagementDialog(QDialog):
             else:
                 QMessageBox.warning(self, "Error", "Component not found")
         except Exception as e:
-            print(f"Error in add_transaction: {e}")
+            pass
             QMessageBox.critical(self, "Error", f"Error adding transaction: {str(e)}")
     
     def remove_transaction(self):

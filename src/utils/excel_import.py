@@ -1,6 +1,6 @@
 import pandas as pd
 from sqlalchemy.orm import Session
-from models.database import Customer, Item, Product, OrderItem, Employee, Order, Delivery, Component, ProductComponent
+from models.database import Customer, Item, Product, OrderItem, Employee, Order, Delivery, Component, ProductComponent, Material, ComponentMaterial
 from datetime import datetime
 import numpy as np
 from PyQt6.QtWidgets import QMessageBox
@@ -1352,6 +1352,128 @@ def import_product_components_from_excel(session: Session, file_path: str, paren
         
     except Exception as e:
         error_msg = f"Error importing product components: {str(e)}"
+        logger.error(error_msg)
+        if parent_widget:
+            QMessageBox.critical(parent_widget, "Import Error", error_msg)
+        return False, error_msg
+
+def import_component_materials_from_excel(session: Session, file_path: str, parent_widget=None):
+    """Import component materials from Excel file - bulk upload material type and required length for components"""
+    try:
+        df = pd.read_excel(file_path, sheet_name="Component Materials")
+        
+        imported_count = 0
+        updated_count = 0
+        skipped_count = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            try:
+                # Clean and validate required fields
+                component_name = clean_string(row.get('component_name'))
+                material_name = clean_string(row.get('material_name'))
+                required_length = row.get('required_length')
+                
+                if not component_name or pd.isna(component_name):
+                    errors.append(f"Row {index + 2}: Missing or invalid component name")
+                    continue
+                
+                if not material_name or pd.isna(material_name):
+                    errors.append(f"Row {index + 2}: Missing or invalid material name")
+                    continue
+                
+                if pd.isna(required_length) or required_length <= 0:
+                    errors.append(f"Row {index + 2}: Missing or invalid required length")
+                    continue
+                
+                # Find component and material
+                component = session.query(Component).filter(Component.name == component_name).first()
+                material = session.query(Material).filter(Material.name == material_name).first()
+                
+                if not component:
+                    errors.append(f"Row {index + 2}: Component '{component_name}' not found")
+                    continue
+                
+                if not material:
+                    errors.append(f"Row {index + 2}: Material '{material_name}' not found")
+                    continue
+                
+                # Check if component-material relationship already exists
+                existing = session.query(ComponentMaterial).filter(
+                    ComponentMaterial.component_id == component.id,
+                    ComponentMaterial.material_id == material.id
+                ).first()
+                
+                # Get optional fields with defaults
+                cutting_allowance = float(row.get('cutting_allowance', 5.0)) if pd.notna(row.get('cutting_allowance', 5.0)) else 5.0
+                waste_percentage = float(row.get('waste_percentage', 0.0)) if pd.notna(row.get('waste_percentage', 0.0)) else 0.0
+                notes = clean_string(row.get('notes'))
+                
+                if existing:
+                    # Update existing component material
+                    existing.required_length = float(required_length)
+                    existing.cutting_allowance = cutting_allowance
+                    existing.waste_percentage = waste_percentage
+                    if notes:
+                        existing.notes = notes
+                    existing.updated_at = datetime.now()
+                    updated_count += 1
+                else:
+                    # Create new component material
+                    component_material = ComponentMaterial(
+                        component_id=component.id,
+                        material_id=material.id,
+                        required_length=float(required_length),
+                        cutting_allowance=cutting_allowance,
+                        waste_percentage=waste_percentage,
+                        notes=notes
+                    )
+                    session.add(component_material)
+                    imported_count += 1
+                
+            except Exception as e:
+                errors.append(f"Row {index + 2}: {str(e)}")
+                continue
+        
+        # Commit all changes
+        session.commit()
+        
+        # Update material costs for affected components
+        updated_components = set()
+        for index, row in df.iterrows():
+            component_name = clean_string(row.get('component_name'))
+            if component_name:
+                component = session.query(Component).filter(Component.name == component_name).first()
+                if component:
+                    updated_components.add(component)
+        
+        for component in updated_components:
+            component.update_material_cost_from_materials()
+        
+        session.commit()
+        
+        # Prepare result message
+        result_msg = f"Component Materials Import Results:\n"
+        result_msg += f"✅ Imported: {imported_count} new material assignments\n"
+        result_msg += f"🔄 Updated: {updated_count} existing material assignments\n"
+        result_msg += f"⏭️ Skipped: {skipped_count} rows\n"
+        
+        if errors:
+            result_msg += f"\n❌ Errors ({len(errors)}):\n"
+            for error in errors[:10]:  # Show first 10 errors
+                result_msg += f"  • {error}\n"
+            if len(errors) > 10:
+                result_msg += f"  • ... and {len(errors) - 10} more errors\n"
+        
+        logger.info(f"Component materials import completed: {imported_count} imported, {updated_count} updated, {len(errors)} errors")
+        
+        if parent_widget:
+            QMessageBox.information(parent_widget, "Import Complete", result_msg)
+        
+        return True, result_msg
+        
+    except Exception as e:
+        error_msg = f"Error importing component materials: {str(e)}"
         logger.error(error_msg)
         if parent_widget:
             QMessageBox.critical(parent_widget, "Import Error", error_msg)

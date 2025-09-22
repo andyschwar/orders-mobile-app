@@ -15,7 +15,7 @@ from datetime import datetime
 from utils.excel_import import (
     import_customers, import_products, import_items,
     import_employees, import_orders_and_items, import_new_orders_only, import_deliveries,
-    import_components_from_excel, import_product_components_from_excel
+    import_components_from_excel, import_product_components_from_excel, import_component_materials_from_excel
 )
 from utils.permissions import get_permissions_manager
 
@@ -57,6 +57,7 @@ class ImportDialog(QDialog):
             "Employees",
             "Components",
             "Product Component Assignments",
+            "Component Materials",
             "Deliveries"
         ])
         type_layout.addWidget(type_label)
@@ -175,6 +176,13 @@ class ImportDialog(QDialog):
                 # Don't show duplicate message - the import function already shows it
                 return
                 
+            elif data_type == "Component Materials":
+                success, message = import_component_materials_from_excel(self.session, file_path, self)
+                if success:
+                    self.components_imported.emit()
+                # Don't show duplicate message - the import function already shows it
+                return
+                
             elif data_type == "Deliveries":
                 result = import_deliveries(self.session, file_path)
                 if result['success']:
@@ -220,6 +228,8 @@ class ImportDialog(QDialog):
                 template_path = "templates/components_template.xlsx"
             elif data_type == "Product Component Assignments":
                 template_path = "templates/product_components_template.xlsx"
+            elif data_type == "Component Materials":
+                template_path = "templates/component_materials_template.xlsx"
             elif data_type == "Deliveries":
                 template_path = "templates/deliveries_template.xlsx"
             else:

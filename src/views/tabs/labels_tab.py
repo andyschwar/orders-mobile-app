@@ -276,7 +276,12 @@ class LabelsTab(QWidget):
             self.item_combo.clear()
             self.all_items = []
             return
-        customer_id = self.customers[customer_idx].id
+        # Get customer ID from combo box data instead of detached object
+        customer_id = self.customer_combo.currentData()
+        if customer_id is None:
+            self.item_combo.clear()
+            self.all_items = []
+            return
         items = self.session.query(Item).filter(Item.customer_id == customer_id).all()
         self.all_items = items  # Store all items for filtering
         self.item_search_input.clear()  # Clear search when customer changes
@@ -330,7 +335,11 @@ class LabelsTab(QWidget):
             if customer_idx < 0 or order_idx < 0 or item_idx < 0:
                 QMessageBox.warning(self, "Input Error", "Please select customer, order, and item.")
                 return
-            customer = self.customers[customer_idx]
+            # Get customer ID from combo box data instead of detached object
+            customer_id = self.customer_combo.currentData()
+            if customer_id is None:
+                QMessageBox.warning(self, "Input Error", "Please select a valid customer.")
+                return
             
             # Get the selected item key
             item_key = self.item_combo.currentData()
@@ -359,13 +368,13 @@ class LabelsTab(QWidget):
             if selected_order_item:
                 quantity = self.qty_input.value()  # Use the user-entered quantity
                 order_number = selected_order_item.order.order_number
+                customer_name = self.customer_combo.currentText()
                 label_data = {
-                    "customer": f"{customer.name_index} - {customer.name}",
+                    "customer": customer_name,
                     "order_number": order_number,
                     "item_code": item.customer_code,
                     "item_name": item.customer_item_name or item.product.name or "",
                     "quantity": quantity,
-                    "customer_obj": customer,
                     "item_obj": item,
                     "delivery_date": selected_order_item.delivery_date
                 }
@@ -389,7 +398,11 @@ class LabelsTab(QWidget):
             if quantity <= 0:
                 QMessageBox.warning(self, "Input Error", "Quantity must be greater than 0.")
                 return
-            customer = self.customers[customer_idx]
+            # Get customer ID from combo box data instead of detached object
+            customer_id = self.customer_combo.currentData()
+            if customer_id is None:
+                QMessageBox.warning(self, "Input Error", "Please select a valid customer.")
+                return
             item_id = self.item_combo.currentData()
             item = next((item for item in self.all_items if item.id == item_id), None)
             if not item:
@@ -403,13 +416,13 @@ class LabelsTab(QWidget):
             
             delivery_date = order_item.delivery_date if order_item else None
             
+            customer_name = self.customer_combo.currentText()
             label_data = {
-                "customer": f"{customer.name_index} - {customer.name}",
+                "customer": customer_name,
                 "order_number": order_number,
                 "item_code": item.customer_code,
                 "item_name": item.customer_item_name or item.product.name or "",
                 "quantity": quantity,
-                "customer_obj": customer,
                 "item_obj": item,
                 "delivery_date": delivery_date
             }
@@ -478,20 +491,74 @@ class LabelsTab(QWidget):
         # Build fake order_item-like objects for all labels
         fake_order_items = []
         for label in self.labels:
+            class FakeCustomer:
+                pass
+            class FakeProduct:
+                pass
+            class FakeItem:
+                pass
             class FakeOrder:
                 pass
             class FakeOrderItem:
                 pass
             fake_order = FakeOrder()
             fake_order.order_number = label["order_number"]
-            fake_order.customer = label["customer_obj"]
+            # Create a fake customer object for printing
+            fake_customer = FakeCustomer()
+            fake_customer.name = label["customer"]
+            # Extract name_index from the customer string (format: "name_index - name")
+            customer_parts = label["customer"].split(" - ", 1)
+            fake_customer.name_index = customer_parts[0] if customer_parts else label["customer"]
+            
+            # Get the actual customer data from database to use real barcode prefixes
+            try:
+                from models.database import Customer
+                real_customer = self.session.query(Customer).filter(
+                    Customer.name_index == fake_customer.name_index
+                ).first()
+                if real_customer:
+                    # Use actual prefixes (None means no prefix)
+                    fake_customer.item_barcode_prefix = real_customer.item_barcode_prefix
+                    fake_customer.order_barcode_prefix = real_customer.order_barcode_prefix
+                    fake_customer.quantity_barcode_prefix = real_customer.quantity_barcode_prefix
+                    fake_customer.barcodes_enabled = real_customer.barcodes_enabled if real_customer.barcodes_enabled is not None else False
+                    print(f"[DEBUG] Using real barcode settings for {real_customer.name}: enabled={fake_customer.barcodes_enabled}, item={fake_customer.item_barcode_prefix}, order={fake_customer.order_barcode_prefix}, quantity={fake_customer.quantity_barcode_prefix}")
+                else:
+                    # Fallback to default prefixes if customer not found
+                    fake_customer.item_barcode_prefix = "P"
+                    fake_customer.order_barcode_prefix = "N"
+                    fake_customer.quantity_barcode_prefix = "U"
+                    fake_customer.barcodes_enabled = False  # Default to disabled for unknown customers
+                    print(f"[DEBUG] Customer not found in database, using default prefixes with barcodes disabled")
+            except Exception as e:
+                # Fallback to default prefixes if there's an error
+                fake_customer.item_barcode_prefix = "P"
+                fake_customer.order_barcode_prefix = "N"
+                fake_customer.quantity_barcode_prefix = "U"
+                fake_customer.barcodes_enabled = False  # Default to disabled on error
+                print(f"[DEBUG] Error getting customer data: {e}, using default prefixes with barcodes disabled")
+            fake_order.customer = fake_customer
+            # Create a fake item object for printing
+            fake_item = FakeItem()
+            fake_item.customer_code = label["item_code"]
+            fake_item.customer_item_name = label["item_name"]
+            # Create a fake product object
+            fake_product = FakeProduct()
+            fake_product.name = label["item_name"]  # Use item_name as product name
+            fake_item.product = fake_product
+            
             fake_order_item = FakeOrderItem()
             fake_order_item.order = fake_order
-            fake_order_item.item = label["item_obj"]
+            fake_order_item.item = fake_item
             fake_order_item.quantity = label["quantity"]
+            fake_order_item.delivered_quantity = 0  # Add missing attribute
             fake_order_item.delivery_date = label.get("delivery_date")
             fake_order_items.append(fake_order_item)
-        dialog = LabelPrintDialog(self, fake_order_items, self.session)
+        print(f"[DEBUG] Created {len(fake_order_items)} fake order items for label generation")
+        for i, item in enumerate(fake_order_items):
+            print(f"[DEBUG] Item {i}: order={item.order.order_number}, customer={item.order.customer.name}, item_code={item.item.customer_code}, quantity={item.quantity}")
+        
+        dialog = LabelPrintDialog(self, fake_order_items, self.session, self.user)
         
         # Show the dialog - the dialog handles generation internally
         dialog.exec()

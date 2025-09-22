@@ -27,11 +27,11 @@ from views.dialogs.box_split_dialog import BoxSplitDialog
 import tempfile
 
 class LabelPrintDialog(QDialog):
-    def __init__(self, parent, order_items, session=None):
-        print('***** LABEL PRINT DIALOG INIT *****')
+    def __init__(self, parent, order_items, session=None, user=None):
         super().__init__(parent)
         self.order_items = order_items
         self.session = session
+        self.user = user
         
         # Set up export directory in /Users/andyschwar/orders/export
         self.export_dir = "/Users/andyschwar/orders/export"
@@ -51,7 +51,7 @@ class LabelPrintDialog(QDialog):
         # Formatting options
         self.label_size = "standard"  # standard, large, small
         self.layout_type = "2x3"  # 2x3, 3x2, 1x4, 4x1
-        self.include_barcodes = True
+        self.include_barcodes = self.get_customer_barcode_setting()
         self.include_weight = True
         self.include_delivery_date = True
         self.include_supplier_info = True
@@ -63,6 +63,27 @@ class LabelPrintDialog(QDialog):
         self.setMinimumSize(1200, 800)
         
         self.init_ui()
+    
+    def get_customer_barcode_setting(self):
+        """Get the customer's default barcode setting from the database"""
+        try:
+            if not self.session or not self.order_items:
+                print("[DEBUG] No session or order items, defaulting to barcodes enabled")
+                return True
+                
+            # Get the first order item to find the customer
+            first_item = self.order_items[0]
+            if hasattr(first_item, 'order') and hasattr(first_item.order, 'customer'):
+                customer = first_item.order.customer
+                barcode_setting = customer.barcodes_enabled if customer.barcodes_enabled is not None else False
+                print(f"[DEBUG] Customer {customer.name_index} barcode setting: {barcode_setting}")
+                return barcode_setting
+            else:
+                print("[DEBUG] Could not find customer, defaulting to barcodes enabled")
+                return True
+        except Exception as e:
+            print(f"[DEBUG] Error getting customer barcode setting: {e}, defaulting to barcodes enabled")
+            return True
     
     def init_ui(self):
         layout = QVBoxLayout()
@@ -175,7 +196,8 @@ class LabelPrintDialog(QDialog):
         
         # Checkboxes for content options
         self.barcode_checkbox = QCheckBox("Include Barcodes")
-        self.barcode_checkbox.setChecked(True)
+        self.barcode_checkbox.setChecked(self.include_barcodes)  # Use customer's default setting
+        print(f"[DEBUG] Initial barcode checkbox state: {self.include_barcodes}")
         self.barcode_checkbox.stateChanged.connect(self.on_barcode_changed)
         formatting_layout.addWidget(self.barcode_checkbox, 2, 0)
         
@@ -234,7 +256,6 @@ class LabelPrintDialog(QDialog):
             "Custom": "custom"
         }
         self.label_size = size_mapping.get(size_text, "standard")
-        print(f"Label size changed to: {self.label_size}")
     
     def on_layout_changed(self, layout_text):
         """Handle layout type change"""
@@ -249,8 +270,6 @@ class LabelPrintDialog(QDialog):
             self.font_slider.setValue(14)  # Bigger font for 4 labels
         else:
             self.font_slider.setValue(10)  # Standard font for 6 labels
-            
-        print(f"Layout type changed to: {self.layout_type}")
     
     def on_style_changed(self, style_text):
         """Handle label style change"""
@@ -260,33 +279,28 @@ class LabelPrintDialog(QDialog):
             "Compact": "compact"
         }
         self.label_style = style_mapping.get(style_text, "modern")
-        print(f"Label style changed to: {self.label_style}")
     
     def on_font_size_changed(self, value):
         """Handle font size change"""
         self.font_size = value
         self.font_size_label.setText(str(value))
-        print(f"Font size changed to: {self.font_size}")
     
     def on_barcode_changed(self, state):
         """Handle barcode checkbox change"""
-        self.include_barcodes = state == Qt.CheckState.Checked
-        print(f"Barcodes enabled: {self.include_barcodes}")
+        self.include_barcodes = state == Qt.CheckState.Checked.value
+        print(f"[DEBUG] Barcode checkbox changed: state={state}, include_barcodes={self.include_barcodes}")
     
     def on_weight_changed(self, state):
         """Handle weight checkbox change"""
         self.include_weight = state == Qt.CheckState.Checked
-        print(f"Weight enabled: {self.include_weight}")
     
     def on_delivery_changed(self, state):
         """Handle delivery date checkbox change"""
         self.include_delivery_date = state == Qt.CheckState.Checked
-        print(f"Delivery date enabled: {self.include_delivery_date}")
     
     def on_supplier_changed(self, state):
         """Handle supplier info checkbox change"""
         self.include_supplier_info = state == Qt.CheckState.Checked
-        print(f"Supplier info enabled: {self.include_supplier_info}")
     
     def on_filtered_mode_changed(self, state):
         """Handle filtered mode checkbox state change"""
@@ -427,7 +441,7 @@ class LabelPrintDialog(QDialog):
             else:
                 items_to_process = self.order_items
             
-            print(f"[DEBUG] Processing {len(items_to_process)} items in {'filtered' if self.filtered_mode else 'normal'} mode")
+            print(f"[DEBUG] get_data: Processing {len(items_to_process)} items")
             
             for i, item in enumerate(items_to_process):
                 try:
@@ -441,19 +455,15 @@ class LabelPrintDialog(QDialog):
                         if quantity <= 0:
                             continue
                         
-                        print(f"[DEBUG] Processing item {i}: order={item.order.order_number}, customer={item.order.customer.name}")
-                        
                         # Validate quantity based on mode
                         if self.filtered_mode:
                             # Handle None values for delivered_quantity
                             delivered_qty = item.delivered_quantity or 0
                             remaining_qty = (item.quantity or 0) - delivered_qty
-                            print(f"[DEBUG] Item {i}: quantity={quantity}, item.quantity={item.quantity}, delivered_quantity={item.delivered_quantity}, remaining_qty={remaining_qty}")
                             if quantity > remaining_qty:
                                 raise ValueError(f"Invalid quantity for {item.order.order_number}: {quantity} > {remaining_qty} (remaining)")
                         else:
                             item_qty = item.quantity or 0
-                            print(f"[DEBUG] Item {i}: quantity={quantity}, item.quantity={item.quantity}, item_qty={item_qty}")
                             if quantity > item_qty:
                                 raise ValueError(f"Invalid quantity for {item.order.order_number}: {quantity} > {item_qty}")
                             
@@ -477,28 +487,23 @@ class LabelPrintDialog(QDialog):
                         return None
                         
                 except Exception as e:
-                    print(f"[DEBUG] Error processing item {i}: {str(e)}")
-                    print(f"[DEBUG] Item details: {item}")
                     continue
             
             if not items_data:
                 QMessageBox.warning(self, "Validation Error", "No items selected for label printing")
                 return None
                 
-            print(f"[DEBUG] Successfully processed {len(items_data)} items")
+            print(f"[DEBUG] get_data: Returning {len(items_data)} items for label generation")
             return items_data
             
         except Exception as e:
-            print(f"[DEBUG] Error in get_data: {str(e)}")
-            print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+            print(f"[DEBUG] get_data: Error processing data: {str(e)}")
             QMessageBox.critical(self, "Error", f"Error processing data: {str(e)}")
             return None
     
     def preview_labels(self):
-        print("[DEBUG] preview_labels called")
         """Generate preview of labels without barcodes"""
         try:
-            print("\n=== Generating label preview ===")
             items_data = self.get_data()
             if not items_data:
                 return
@@ -511,15 +516,12 @@ class LabelPrintDialog(QDialog):
                 formatting_options["include_barcodes"] = False
                 
             # Generate labels without barcodes
-            self.preview_file = self.label_generator.generate_labels(items_data, include_barcodes=False, formatting_options=formatting_options)
-            print(f"Preview labels saved to: {self.preview_file}")
+            self.preview_file = self.label_generator.generate_labels(items_data, include_barcodes=False, formatting_options=formatting_options, printed_by=self.user.username if self.user else "Unknown", session=self.session)
             
             # Open the PDF file
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.preview_file))
             
         except Exception as e:
-            print(f"Error generating preview: {str(e)}")
-            print(f"Traceback: {traceback.format_exc()}")
             QMessageBox.critical(self, "Error", f"Error generating preview: {str(e)}")
             
     def generate_barcodes(self):
@@ -531,8 +533,9 @@ class LabelPrintDialog(QDialog):
             if not items_data:
                 return
                 
-            # Generate labels with barcodes
-            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=True)
+            # Generate labels with barcodes (use checkbox setting)
+            print(f"[DEBUG] Generating labels with include_barcodes={self.include_barcodes}")
+            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=self.include_barcodes, printed_by=self.user.username if self.user else "Unknown", session=self.session)
             print(f"Final labels saved to: {self.final_file}")
             
             # Open the PDF file
@@ -546,8 +549,6 @@ class LabelPrintDialog(QDialog):
             )
             
         except Exception as e:
-            print(f"Error generating barcodes: {str(e)}")
-            print(f"Traceback: {traceback.format_exc()}")
             QMessageBox.critical(self, "Error", f"Error generating barcodes: {str(e)}")
             
     def closeEvent(self, event):
@@ -557,7 +558,7 @@ class LabelPrintDialog(QDialog):
                 os.unlink(self.preview_file)
             # Don't delete the final file as it's the actual generated file
         except Exception as e:
-            print(f"Error cleaning up files: {str(e)}")
+            pass
         event.accept()
 
     def split_boxes(self, row):
@@ -586,7 +587,6 @@ class LabelPrintDialog(QDialog):
     def generate_labels(self):
         """Generate labels for selected items with formatting options"""
         try:
-            print("[DEBUG] generate_labels called")
             items_data = self.get_data()
             if not items_data:
                 return
@@ -599,8 +599,7 @@ class LabelPrintDialog(QDialog):
                 formatting_options["include_barcodes"] = self.include_barcodes
                 
             # Generate labels with formatting options
-            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=self.include_barcodes, formatting_options=formatting_options)
-            print(f"Final labels saved to: {self.final_file}")
+            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=self.include_barcodes, formatting_options=formatting_options, printed_by=self.user.username if self.user else "Unknown", session=self.session)
             
             # Show success message
             QMessageBox.information(
@@ -610,20 +609,16 @@ class LabelPrintDialog(QDialog):
             )
             
         except Exception as e:
-            print(f"Error generating labels: {str(e)}")
-            print(f"Traceback: {traceback.format_exc()}")
             QMessageBox.critical(self, "Error", f"Error generating labels: {str(e)}") 
 
     def generate_labels_and_close(self):
         """Generate labels and close the dialog"""
-        print("[DEBUG] generate_labels_and_close called")
         try:
             self.generate_labels()
-            print("[DEBUG] generate_labels completed, closing dialog")
             self.accept()  # Close the dialog
         except Exception as e:
-            print(f"Error in generate_labels_and_close: {str(e)}")
             # Don't close on error, let user see the error message
+            pass
 
     def generate_labels_and_save_and_close(self):
         """Generate labels, save to user-specified location, and close the dialog"""
@@ -631,8 +626,8 @@ class LabelPrintDialog(QDialog):
             self.generate_labels_and_save()
             self.accept()  # Close the dialog
         except Exception as e:
-            print(f"Error in generate_labels_and_save_and_close: {str(e)}")
             # Don't close on error, let user see the error message
+            pass
 
     def generate_labels_and_save(self):
         """Generate labels and save to user-specified location with formatting options"""
@@ -644,7 +639,6 @@ class LabelPrintDialog(QDialog):
             return
             
         try:
-            print("[DEBUG] generate_labels_and_save called")
             items_data = self.get_data()
             if not items_data:
                 return
@@ -657,8 +651,7 @@ class LabelPrintDialog(QDialog):
                 formatting_options["include_barcodes"] = self.include_barcodes
                 
             # Generate labels with formatting options
-            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=self.include_barcodes, formatting_options=formatting_options)
-            print(f"Final labels saved to: {self.final_file}")
+            self.final_file = self.label_generator.generate_labels(items_data, include_barcodes=self.include_barcodes, formatting_options=formatting_options, printed_by=self.user.username if self.user else "Unknown", session=self.session)
             
             # Copy the generated file to the user-specified location
             import shutil
@@ -672,8 +665,6 @@ class LabelPrintDialog(QDialog):
             )
             
         except Exception as e:
-            print(f"Error generating labels: {str(e)}")
-            print(f"Traceback: {traceback.format_exc()}")
             QMessageBox.critical(self, "Error", f"Error generating labels: {str(e)}") 
 
 def replace_czech_chars(text):

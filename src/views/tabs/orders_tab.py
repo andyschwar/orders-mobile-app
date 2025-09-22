@@ -4,13 +4,15 @@ from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QDateEdit, QComboBox
 )
 from PyQt6.QtCore import Qt, QDate, pyqtSignal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from datetime import datetime, date
 from models.database import Order, Customer, Item, OrderItem, Delivery
 from ..dialogs.order_dialog import OrderDialog
 from ..dialogs.delivery_dialog import DeliveryDialog
 from utils.permissions import get_permissions_manager
+from utils.database_decorators import handle_database_errors, safe_database_operation, with_connection_test
+from utils.delivery_pairing import pair_deliveries_to_terms_for_order_items
 
 class OrdersTab(QWidget):
     order_updated = pyqtSignal()
@@ -140,8 +142,14 @@ class OrdersTab(QWidget):
         
         self.table.resizeColumnsToContents()
     
+    @with_connection_test
     def refresh_data(self):
-        orders = self.session.query(Order).join(Customer).order_by(Order.order_date.desc()).all()
+        # Clear any existing objects from the session to ensure fresh data
+        self.session.expire_all()
+        
+        orders = self.session.query(Order).join(Customer).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).order_by(Order.order_date.desc()).all()
         self.populate_table(orders)
         
     def search_orders(self, text):
@@ -150,7 +158,9 @@ class OrdersTab(QWidget):
             return
             
         search = f"%{text}%"
-        orders = self.session.query(Order).join(Customer).filter(
+        orders = self.session.query(Order).join(Customer).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).filter(
             or_(
                 Order.order_number.ilike(search),
                 Customer.name_index.ilike(search),
@@ -165,7 +175,21 @@ class OrdersTab(QWidget):
         if self.user and not self.permissions_manager.has_permission(self.user, "orders", "create"):
             QMessageBox.warning(self, "Permission Denied", "You don't have permission to add orders.")
             return
+        
+        # Use robust connection helper to avoid hanging
+        try:
+            from models.database import get_session_with_retry
             
+            # Test connection with timeout
+            with get_session_with_retry(max_retries=1, retry_delay=1) as test_session:
+                print("✅ Fresh session connectivity test passed")
+            
+        except Exception as e:
+            print(f"❌ Fresh session connectivity test failed: {e}")
+            QMessageBox.critical(self, "Database Error", f"Database connection lost or timed out. Please restart the application.\n\nError: {str(e)}")
+            return
+            
+        # Use the main session for the dialog (it should be working now)
         dialog = OrderDialog(self.session, self, user=self.user)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             data = dialog.get_data()
@@ -175,38 +199,62 @@ class OrdersTab(QWidget):
                 QMessageBox.warning(self, "Validation Error", "Order number and at least one item are required")
                 return
             
-            # Check for duplicate order number
-            existing = self.session.query(Order).filter(Order.order_number == data["order_number"]).first()
-            if existing:
-                QMessageBox.warning(self, "Validation Error", "Order number already exists")
-                return
+            # Use robust connection helper for the actual order creation
+            from utils.database_decorators import safe_database_operation
             
-            # Create order
-            order = Order(
-                order_number=data["order_number"],
-                customer_id=data["customer_id"],
-                order_date=data["order_date"]
-            )
-            order.updated_at = datetime.now()  # Explicitly set the timestamp
-            
-            # Add items
-            for item_data in data["items"]:
-                order_item = OrderItem(
-                    item_id=item_data["item_id"],
-                    quantity=item_data["quantity"],
-                    price=item_data["price"],
-                    delivery_date=item_data["delivery_date"]
+            def create_order_operation(session):
+                # Check for duplicate order number
+                existing = session.query(Order).filter(Order.order_number == data["order_number"]).first()
+                if existing:
+                    raise ValueError("Order number already exists")
+                
+                # Create order
+                order = Order(
+                    order_number=data["order_number"],
+                    customer_id=data["customer_id"],
+                    order_date=data["order_date"]
                 )
-                order.items.append(order_item)
+                order.updated_at = datetime.now()
+                
+                # Add items
+                for item_data in data["items"]:
+                    order_item = OrderItem(
+                        item_id=item_data["item_id"],
+                        quantity=item_data["quantity"],
+                        price=item_data["price"],
+                        delivery_date=item_data["delivery_date"],
+                        surface_treatment=item_data.get("surface_treatment", "KATAFOREZA")
+                    )
+                    order.items.append(order_item)
+                
+                # Add and commit
+                session.add(order)
+                session.commit()
+                return order
             
             try:
-                self.session.add(order)
-                self.session.commit()
+                print(f"🔍 Creating order: {data['order_number']} for customer {data['customer_id']}")
+                # Use the session from the dialog or get a fresh one
+                with get_session_with_retry() as session:
+                    created_order = create_order_operation(session)
+                    # Extract order number before session closes
+                    order_number = created_order.order_number
+                print(f"✅ Order {order_number} created successfully")
+                
+                # Refresh the main session and UI
+                self.session.expire_all()
                 self.refresh_data()
                 self.order_updated.emit()
+                
+                QMessageBox.information(self, "Success", f"Order {order_number} created successfully!")
+                
+            except ValueError as e:
+                QMessageBox.warning(self, "Validation Error", str(e))
             except Exception as e:
-                self.session.rollback()
-                QMessageBox.critical(self, "Error", f"Error adding order: {str(e)}")
+                print(f"❌ Error creating order: {e}")
+                import traceback
+                traceback.print_exc()
+                QMessageBox.critical(self, "Error", f"Error creating order: {str(e)}")
     
     def edit_order(self):
         # Check permissions
@@ -218,9 +266,24 @@ class OrdersTab(QWidget):
         if not selected_rows:
             QMessageBox.warning(self, "Warning", "Please select an order to edit")
             return
+        
+        # Test database connection before proceeding
+        try:
+            from models.database import get_session_with_retry
+            
+            # Test connection with timeout
+            with get_session_with_retry(max_retries=1, retry_delay=1) as test_session:
+                print("✅ Fresh session connectivity test passed for edit")
+            
+        except Exception as e:
+            print(f"❌ Fresh session connectivity test failed for edit: {e}")
+            QMessageBox.critical(self, "Database Error", f"Database connection lost or timed out. Please restart the application.\n\nError: {str(e)}")
+            return
             
         order_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        order = self.session.query(Order).get(order_id)
+        order = self.session.query(Order).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).get(order_id)
         
         dialog = OrderDialog(self.session, self, order, user=self.user)
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -262,6 +325,7 @@ class OrdersTab(QWidget):
                     existing_item.quantity = item_data["quantity"]
                     existing_item.price = item_data["price"]
                     existing_item.delivery_date = item_data["delivery_date"]
+                    existing_item.surface_treatment = item_data.get("surface_treatment", "KATAFOREZA")
                     new_items.append(existing_item)
                     # Remove from existing_items so we know it's been processed
                     del existing_items[item_id]
@@ -271,7 +335,8 @@ class OrdersTab(QWidget):
                         item_id=item_data["item_id"],
                         quantity=item_data["quantity"],
                         price=item_data["price"],
-                        delivery_date=item_data["delivery_date"]
+                        delivery_date=item_data["delivery_date"],
+                        surface_treatment=item_data.get("surface_treatment", "KATAFOREZA")
                     )
                     new_items.append(order_item)
             
@@ -285,14 +350,28 @@ class OrdersTab(QWidget):
             # Explicitly update the timestamp to ensure it's recorded
             order.updated_at = datetime.now()
             
+            # After modifying items, re-pair deliveries to delivery terms to keep consistency
+            try:
+                pair_deliveries_to_terms_for_order_items(self.session, order.items)
+            except Exception:
+                # Pairing issues shouldn't block editing; will be handled by subsequent commit/rollback
+                pass
+            
             try:
                 self.session.commit()
+                # Refresh the session to ensure we get fresh data
+                self.session.expire_all()
                 self.refresh_data()
                 self.order_updated.emit()
+                QMessageBox.information(self, "Success", f"Order {data['order_number']} updated successfully!")
             except Exception as e:
                 self.session.rollback()
+                print(f"❌ Error updating order: {e}")
+                import traceback
+                traceback.print_exc()
                 QMessageBox.critical(self, "Error", f"Error updating order: {str(e)}")
     
+    @with_connection_test
     def delete_order(self):
         # Check permissions
         if self.user and not self.permissions_manager.has_permission(self.user, "orders", "delete"):
@@ -313,7 +392,9 @@ class OrdersTab(QWidget):
         
         if confirm == QMessageBox.StandardButton.Yes:
             order_id = int(self.table.item(selected_rows[0].row(), 0).text())
-            order = self.session.query(Order).get(order_id)
+            order = self.session.query(Order).options(
+                joinedload(Order.items).joinedload(OrderItem.item)
+            ).get(order_id)
             
             try:
                 self.session.delete(order)
@@ -338,7 +419,9 @@ class OrdersTab(QWidget):
             return
             
         order_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        order = self.session.query(Order).get(order_id)
+        order = self.session.query(Order).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).get(order_id)
         
         # Check if there are any items that haven't been fully delivered
         undelivered_items = [
@@ -416,7 +499,9 @@ class OrdersTab(QWidget):
             return
             
         order_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        order = self.session.query(Order).get(order_id)
+        order = self.session.query(Order).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).get(order_id)
         
         # Show item selection dialog
         from PyQt6.QtWidgets import QInputDialog
@@ -478,7 +563,9 @@ class OrdersTab(QWidget):
             return
             
         order_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        order = self.session.query(Order).get(order_id)
+        order = self.session.query(Order).options(
+            joinedload(Order.items).joinedload(OrderItem.item)
+        ).get(order_id)
         
         # Show delivery management dialog
         from views.dialogs.delivery_management_dialog import DeliveryManagementDialog

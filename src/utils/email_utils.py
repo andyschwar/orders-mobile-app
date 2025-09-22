@@ -159,6 +159,49 @@ class EmailSender:
             print(f"Error sending welcome email: {e}")
             return False
     
+    def send_password_reset_email(self, user: User, new_password: str) -> bool:
+        """Send password reset email with new temporary password"""
+        try:
+            if not user.email:
+                return False
+            
+            subject = f"Password Reset - {self.config.config.get('app_name', 'Orders Management System')}"
+            
+            html_content = f"""
+            <html>
+            <body>
+                <h2>Password Reset</h2>
+                <p>Hello {user.username},</p>
+                <p>Your password has been reset by an administrator.</p>
+                <p>Your new temporary password is: <strong>{new_password}</strong></p>
+                <p>Please change your password after your next login.</p>
+                <br>
+                <p>Best regards,<br>{self.config.config.get('app_name', 'Orders Management System')}</p>
+            </body>
+            </html>
+            """
+            
+            text_content = f"""
+            Password Reset
+            
+            Hello {user.username},
+            
+            Your password has been reset by an administrator.
+            
+            Your new temporary password is: {new_password}
+            
+            Please change your password after your next login.
+            
+            Best regards,
+            {self.config.config.get('app_name', 'Orders Management System')}
+            """
+            
+            return self._send_email(user.email, subject, html_content, text_content)
+            
+        except Exception as e:
+            print(f"Error sending password reset email: {e}")
+            return False
+    
     def _send_email(self, to_email: str, subject: str, html_content: str, text_content: str) -> bool:
         """Send email using SMTP"""
         try:
