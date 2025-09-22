@@ -153,17 +153,17 @@ def admin_required(f):
 
 # Create a fake order item class that matches the expected structure
 class FakeOrderItem:
-    def __init__(self, order_data, item_data, quantity, delivery_date=None):
+    def __init__(self, order_data, item_data, quantity, delivery_date=None, customer_barcodes_enabled=False, customer_item_prefix='', customer_order_prefix='', customer_qty_prefix=''):
         # Create fake order
         self.order = type('FakeOrder', (), {
             'order_number': order_data['order_number'],
             'customer': type('FakeCustomer', (), {
                 'name': order_data['customer_name'],
                 'name_index': order_data['customer_name_index'],
-                'barcodes_enabled': True,  # Enable barcodes by default
-                'item_barcode_prefix': 'P',  # Default prefix for item barcodes
-                'order_barcode_prefix': 'N',  # Default prefix for order barcodes
-                'quantity_barcode_prefix': 'U'  # Default prefix for quantity barcodes
+                'barcodes_enabled': customer_barcodes_enabled,  # Use real customer settings
+                'item_barcode_prefix': customer_item_prefix,  # Use real customer prefix
+                'order_barcode_prefix': customer_order_prefix,  # Use real customer prefix
+                'quantity_barcode_prefix': customer_qty_prefix  # Use real customer prefix
             })()
         })()
         
@@ -2497,6 +2497,12 @@ def add_to_cart():
             if not order_item:
                 return jsonify({'error': 'Order item not found'}), 404
             
+            # Get real customer barcode settings
+            customer_barcodes_enabled = getattr(order.customer, 'barcodes_enabled', False) if hasattr(order.customer, 'barcodes_enabled') else False
+            customer_item_prefix = getattr(order.customer, 'item_barcode_prefix', '') if hasattr(order.customer, 'item_barcode_prefix') else ''
+            customer_order_prefix = getattr(order.customer, 'order_barcode_prefix', '') if hasattr(order.customer, 'order_barcode_prefix') else ''
+            customer_qty_prefix = getattr(order.customer, 'quantity_barcode_prefix', '') if hasattr(order.customer, 'quantity_barcode_prefix') else ''
+            
             # Create fake order item for cart
             fake_order_item = FakeOrderItem(
                 order_data={
@@ -2511,7 +2517,11 @@ def add_to_cart():
                     'weight_per_unit': order_item.item.product.weight_per_unit
                 },
                 quantity=data.get('quantity', 1),
-                delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None
+                delivery_date=datetime.strptime(data['delivery_date'], '%Y-%m-%d').date() if data.get('delivery_date') else None,
+                customer_barcodes_enabled=customer_barcodes_enabled,
+                customer_item_prefix=customer_item_prefix,
+                customer_order_prefix=customer_order_prefix,
+                customer_qty_prefix=customer_qty_prefix
             )
             
             # Add to cart
@@ -2582,17 +2592,8 @@ def generate_cart_labels():
         export_dir = tempfile.mkdtemp()
         label_generator = LabelGenerator(export_dir)
         
-        # Get customer barcode settings from the first item in cart
-        include_barcodes = True  # Default to True for cart export
-        if label_cart:
-            try:
-                first_item = label_cart[0]
-                if hasattr(first_item, 'order') and hasattr(first_item.order, 'customer'):
-                    customer = first_item.order.customer
-                    include_barcodes = getattr(customer, 'barcodes_enabled', False) if hasattr(customer, 'barcodes_enabled') else False
-            except Exception as e:
-                print(f"Error getting customer barcode settings: {e}")
-                include_barcodes = True  # Fallback to True
+        # Let the label generator handle barcode settings for each item individually
+        include_barcodes = True  # Default to True, let label generator decide per item
         
         # Get additional formatting options from request
         data = request.json or {}
@@ -2626,30 +2627,32 @@ def generate_cart_labels():
             print(f"🔍 First item: {delivery_items[0] if delivery_items else 'No items'}")
             print(f"🔍 Customer barcode settings: {include_barcodes}")
             
-            pdf_path = label_generator.generate_labels(delivery_items, include_barcodes=include_barcodes, formatting_options=formatting_options, printed_by=username, session=db_session)
-            
-            print(f"🔍 PDF generated at: {pdf_path}")
-            
-            # Verify the file was created
-            if not os.path.exists(pdf_path):
-                raise Exception("PDF file was not created")
-            
-            # Check file size
-            file_size = os.path.getsize(pdf_path)
-            print(f"🔍 PDF file size: {file_size} bytes")
-            
-            if file_size == 0:
-                raise Exception("PDF file is empty (0 bytes)")
-            
-            # Get filename from the generated PDF path
-            filename = os.path.basename(pdf_path)
-            
-            # Copy file to a more accessible location for download
-            import shutil
-            download_dir = os.path.join(os.getcwd(), 'downloads')
-            os.makedirs(download_dir, exist_ok=True)
-            download_path = os.path.join(download_dir, filename)
-            shutil.copy2(pdf_path, download_path)
+            # Get database session for label generation
+            with get_session() as db_session:
+                pdf_path = label_generator.generate_labels(delivery_items, include_barcodes=include_barcodes, formatting_options=formatting_options, printed_by=username, session=db_session)
+                
+                print(f"🔍 PDF generated at: {pdf_path}")
+                
+                # Verify the file was created
+                if not os.path.exists(pdf_path):
+                    raise Exception("PDF file was not created")
+                
+                # Check file size
+                file_size = os.path.getsize(pdf_path)
+                print(f"🔍 PDF file size: {file_size} bytes")
+                
+                if file_size == 0:
+                    raise Exception("PDF file is empty (0 bytes)")
+                
+                # Get filename from the generated PDF path
+                filename = os.path.basename(pdf_path)
+                
+                # Copy file to a more accessible location for download
+                import shutil
+                download_dir = os.path.join(os.getcwd(), 'downloads')
+                os.makedirs(download_dir, exist_ok=True)
+                download_path = os.path.join(download_dir, filename)
+                shutil.copy2(pdf_path, download_path)
             
             # Clear cart after generation
             label_cart.clear()
