@@ -368,9 +368,7 @@ class LabelGenerator:
                     continue
                 
                 # Add item info
-                item_name = order_item.item.customer_item_name or order_item.item.product.name
-                item_name = replace_czech_chars(item_name)
-                label_flowables.append(Paragraph(f"Item: {item_name}", custom_style))
+                label_flowables.append(Paragraph(f"Item: {order_item.item.customer_item_name or order_item.item.product.name}", custom_style))
                 label_flowables.append(Paragraph(f"Code: {order_item.item.customer_code}", custom_style))
                 
                 # Add barcodes if enabled, or placeholder for consistent height
@@ -542,7 +540,6 @@ class LabelGenerator:
                 
                 # Get item information
                 item_name = order_item.item.customer_item_name or order_item.item.product.name
-                item_name = replace_czech_chars(item_name)
                 item_code = order_item.item.customer_code
                 
                 # Get barcode information
@@ -561,13 +558,6 @@ class LabelGenerator:
                         # We'll set it to None and handle it in the database
                         order_item_id = None
                     
-                    # Get delivery date - try direct access first, then getattr as fallback
-                    delivery_date = None
-                    if hasattr(order_item, 'delivery_date'):
-                        delivery_date = order_item.delivery_date
-                    else:
-                        delivery_date = getattr(order_item, 'delivery_date', None)
-                    
                     label_log = LabelLog(
                         order_item_id=order_item_id,
                         customer_name=customer_name,
@@ -577,7 +567,6 @@ class LabelGenerator:
                         item_name=item_name,
                         quantity=box_qty,
                         printed_quantity=1,  # Each box gets one label
-                        delivery_date=delivery_date,
                         barcodes_included=barcodes_included,
                         item_barcode=item_barcode,
                         order_barcode=order_barcode,
