@@ -101,7 +101,7 @@ class LabelLogsTab(QWidget):
     
     def setup_table(self):
         """Setup the table columns and properties"""
-        self.table.setColumnCount(12)
+        self.table.setColumnCount(13)
         self.table.setHorizontalHeaderLabels([
             "ID",
             "Customer",
@@ -110,6 +110,7 @@ class LabelLogsTab(QWidget):
             "Item Name",
             "Quantity",
             "Printed Quantity",
+            "Delivery Date",
             "Barcodes Included",
             "Printed By",
             "Printed At",
@@ -125,11 +126,12 @@ class LabelLogsTab(QWidget):
         self.table.setColumnWidth(4, 200)  # Item Name
         self.table.setColumnWidth(5, 80)   # Quantity
         self.table.setColumnWidth(6, 100) # Printed Quantity
-        self.table.setColumnWidth(7, 120) # Barcodes Included
-        self.table.setColumnWidth(8, 100) # Printed By
-        self.table.setColumnWidth(9, 120) # Printed At
-        self.table.setColumnWidth(10, 200) # PDF File
-        self.table.setColumnWidth(11, 150) # Notes
+        self.table.setColumnWidth(7, 100) # Delivery Date
+        self.table.setColumnWidth(8, 120) # Barcodes Included
+        self.table.setColumnWidth(9, 100) # Printed By
+        self.table.setColumnWidth(10, 120) # Printed At
+        self.table.setColumnWidth(11, 200) # PDF File
+        self.table.setColumnWidth(12, 150) # Notes
         
         # Make table read-only
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -190,11 +192,12 @@ class LabelLogsTab(QWidget):
             self.table.setItem(i, 4, QTableWidgetItem(log.item_name))
             self.table.setItem(i, 5, QTableWidgetItem(str(log.quantity)))
             self.table.setItem(i, 6, QTableWidgetItem(str(log.printed_quantity)))
-            self.table.setItem(i, 7, QTableWidgetItem("Yes" if log.barcodes_included else "No"))
-            self.table.setItem(i, 8, QTableWidgetItem(log.printed_by or "Unknown"))
-            self.table.setItem(i, 9, QTableWidgetItem(log.printed_at.strftime("%Y-%m-%d %H:%M") if log.printed_at else ""))
-            self.table.setItem(i, 10, QTableWidgetItem(log.pdf_filename or ""))
-            self.table.setItem(i, 11, QTableWidgetItem(log.notes or ""))
+            self.table.setItem(i, 7, QTableWidgetItem(log.delivery_date.strftime("%Y-%m-%d") if log.delivery_date else ""))
+            self.table.setItem(i, 8, QTableWidgetItem("Yes" if log.barcodes_included else "No"))
+            self.table.setItem(i, 9, QTableWidgetItem(log.printed_by or "Unknown"))
+            self.table.setItem(i, 10, QTableWidgetItem(log.printed_at.strftime("%Y-%m-%d %H:%M") if log.printed_at else ""))
+            self.table.setItem(i, 11, QTableWidgetItem(log.pdf_filename or ""))
+            self.table.setItem(i, 12, QTableWidgetItem(log.notes or ""))
     
     def search_logs(self):
         """Search logs based on search input"""
@@ -256,7 +259,7 @@ class LabelLogsTab(QWidget):
     def open_pdf(self, row, column):
         """Open PDF file when double-clicked"""
         try:
-            pdf_filename = self.table.item(row, 10).text()  # PDF File column
+            pdf_filename = self.table.item(row, 11).text()  # PDF File column
             if pdf_filename and os.path.exists(pdf_filename):
                 QDesktopServices.openUrl(QUrl.fromLocalFile(pdf_filename))
             else:
@@ -307,6 +310,7 @@ class LabelLogsTab(QWidget):
                     'Item Name': log.item_name,
                     'Quantity': log.quantity,
                     'Printed Quantity': log.printed_quantity,
+                    'Delivery Date': log.delivery_date.strftime("%Y-%m-%d") if log.delivery_date else "",
                     'Barcodes Included': "Yes" if log.barcodes_included else "No",
                     'Item Barcode': log.item_barcode or "",
                     'Order Barcode': log.order_barcode or "",

@@ -588,6 +588,7 @@ class LabelLog(Base):
     item_name = Column(String(300), nullable=False)
     quantity = Column(Integer, nullable=False)
     printed_quantity = Column(Integer, nullable=False)  # How many labels were printed
+    delivery_date = Column(Date, nullable=True)  # Delivery date used for the label
     barcodes_included = Column(Boolean, default=False)
     item_barcode = Column(String(200))  # The actual barcode data
     order_barcode = Column(String(200))
